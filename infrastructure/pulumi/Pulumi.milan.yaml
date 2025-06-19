@@ -5,6 +5,8 @@ config:
   k8s-multi-region-dr:vpcCidr: 10.0.0.0/16
   k8s-multi-region-dr:clusterName: k8s-dr-milan
   k8s-multi-region-dr:nodeInstanceType: t3.large
-  k8s-multi-region-dr:desiredCapacity: 3
-  k8s-multi-region-dr:minSize: 1
-  k8s-multi-region-dr:maxSize: 6 
+  k8s-multi-region-dr:desiredCapacity: "3"
+  k8s-multi-region-dr:minSize: "1"
+  k8s-multi-region-dr:maxSize: "6"
+  aws:profile: default
+encryptionsalt: v1:cki6b1KRdCY=:v1:e/cazPZH4zurwRrJ:Bkgiia8uUcoAyBw+Te69dunze3H2cw==

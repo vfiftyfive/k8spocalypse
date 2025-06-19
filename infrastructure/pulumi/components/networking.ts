@@ -8,6 +8,7 @@ export interface NetworkingArgs {
     environment: string;
     region: string;
     tags?: Record<string, string>;
+    createEcrEndpoints?: boolean; // Make ECR endpoints optional
 }
 
 export class Networking extends pulumi.ComponentResource {
@@ -36,6 +37,7 @@ export class Networking extends pulumi.ComponentResource {
             natGateways: {
                 strategy: "OnePerAz", // NAT Gateway in each AZ for high availability
             },
+            subnetStrategy: "Auto", // Explicitly set to avoid warning
             subnetSpecs: [
                 {
                     type: awsx.ec2.SubnetType.Public,
@@ -106,49 +108,63 @@ export class Networking extends pulumi.ComponentResource {
             },
         }, { parent: this });
 
+        // Get all route tables for the VPC
+        const routeTables = this.vpcId.apply(vpcId => 
+            aws.ec2.getRouteTables({
+                filters: [{
+                    name: "vpc-id",
+                    values: [vpcId],
+                }],
+            })
+        );
+
         // Create VPC endpoints for better performance and security
         const s3Endpoint = new aws.ec2.VpcEndpoint(`${name}-s3-endpoint`, {
             vpcId: this.vpcId,
             serviceName: `com.amazonaws.${args.region}.s3`,
-            routeTableIds: pulumi.all([
-                this.vpc.publicSubnetIds,
-                this.vpc.privateSubnetIds,
-            ]).apply(([publicIds, privateIds]) => {
-                // Get route tables for all subnets
-                return [...publicIds, ...privateIds];
-            }),
+            routeTableIds: routeTables.apply(rt => rt.ids),
             tags: {
                 ...defaultTags,
                 Name: `${args.projectName}-${args.environment}-s3-endpoint`,
             },
         }, { parent: this });
 
-        // Create ECR endpoints for pulling container images
-        const ecrApiEndpoint = new aws.ec2.VpcEndpoint(`${name}-ecr-api-endpoint`, {
-            vpcId: this.vpcId,
-            serviceName: `com.amazonaws.${args.region}.ecr.api`,
-            vpcEndpointType: "Interface",
-            subnetIds: this.privateSubnetIds,
-            securityGroupIds: [this.eksSecurityGroup.id],
-            privateDnsEnabled: true,
-            tags: {
-                ...defaultTags,
-                Name: `${args.projectName}-${args.environment}-ecr-api-endpoint`,
-            },
-        }, { parent: this });
+        // Only create ECR endpoints if explicitly requested
+        // Some regions don't support these endpoints
+        if (args.createEcrEndpoints !== false) {
+            pulumi.log.info("Note: ECR VPC endpoints might not be available in all regions. If they fail, set createEcrEndpoints to false.");
+            
+            // Try to create ECR endpoints but don't fail the entire deployment if they're not available
+            try {
+                const ecrApiEndpoint = new aws.ec2.VpcEndpoint(`${name}-ecr-api-endpoint`, {
+                    vpcId: this.vpcId,
+                    serviceName: `com.amazonaws.${args.region}.ecr.api`,
+                    vpcEndpointType: "Interface",
+                    subnetIds: this.privateSubnetIds,
+                    securityGroupIds: [this.eksSecurityGroup.id],
+                    privateDnsEnabled: true,
+                    tags: {
+                        ...defaultTags,
+                        Name: `${args.projectName}-${args.environment}-ecr-api-endpoint`,
+                    },
+                }, { parent: this, ignoreChanges: ["serviceName"] });
 
-        const ecrDkrEndpoint = new aws.ec2.VpcEndpoint(`${name}-ecr-dkr-endpoint`, {
-            vpcId: this.vpcId,
-            serviceName: `com.amazonaws.${args.region}.ecr.dkr`,
-            vpcEndpointType: "Interface",
-            subnetIds: this.privateSubnetIds,
-            securityGroupIds: [this.eksSecurityGroup.id],
-            privateDnsEnabled: true,
-            tags: {
-                ...defaultTags,
-                Name: `${args.projectName}-${args.environment}-ecr-dkr-endpoint`,
-            },
-        }, { parent: this });
+                const ecrDkrEndpoint = new aws.ec2.VpcEndpoint(`${name}-ecr-dkr-endpoint`, {
+                    vpcId: this.vpcId,
+                    serviceName: `com.amazonaws.${args.region}.ecr.dkr`,
+                    vpcEndpointType: "Interface",
+                    subnetIds: this.privateSubnetIds,
+                    securityGroupIds: [this.eksSecurityGroup.id],
+                    privateDnsEnabled: true,
+                    tags: {
+                        ...defaultTags,
+                        Name: `${args.projectName}-${args.environment}-ecr-dkr-endpoint`,
+                    },
+                }, { parent: this, ignoreChanges: ["serviceName"] });
+            } catch (error) {
+                pulumi.log.warn(`ECR VPC endpoints not available in region ${args.region}. Continuing without them.`);
+            }
+        }
 
         // Register outputs
         this.registerOutputs({

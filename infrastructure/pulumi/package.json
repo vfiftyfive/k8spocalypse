@@ -2,7 +2,7 @@
   "name": "k8s-multi-region-dr",
   "version": "1.0.0",
   "description": "Multi-region Kubernetes disaster recovery infrastructure",
-  "main": "index.js",
+  "main": "index.ts",
   "scripts": {
     "build": "tsc",
     "deploy:milan": "pulumi up -s milan",

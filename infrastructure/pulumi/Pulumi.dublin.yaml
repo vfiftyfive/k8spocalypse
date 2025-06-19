@@ -5,6 +5,7 @@ config:
   k8s-multi-region-dr:vpcCidr: 10.1.0.0/16
   k8s-multi-region-dr:clusterName: k8s-dr-dublin
   k8s-multi-region-dr:nodeInstanceType: t3.large
-  k8s-multi-region-dr:desiredCapacity: 3
-  k8s-multi-region-dr:minSize: 1
-  k8s-multi-region-dr:maxSize: 6 
+  k8s-multi-region-dr:desiredCapacity: "3"
+  k8s-multi-region-dr:minSize: "1"
+  k8s-multi-region-dr:maxSize: "6"
+encryptionsalt: v1:zrtp9adjaEU=:v1:etdGVnkdl9MzagJB:c6so3O2mFyc15Hr669Fdi1FCo5VRgQ==

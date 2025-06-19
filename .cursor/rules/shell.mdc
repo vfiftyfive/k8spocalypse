@@ -1,0 +1,8 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+#run command in shell
+- use fish to run commands and build script
+- don't user powershell as it leads to many errors

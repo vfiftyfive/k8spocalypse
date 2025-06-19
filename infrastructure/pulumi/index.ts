@@ -4,6 +4,7 @@ import * as awsx from "@pulumi/awsx";
 import * as eks from "@pulumi/eks";
 import * as k8s from "@pulumi/kubernetes";
 import { Networking } from "./components/networking";
+import { EksCluster } from "./components/eks-cluster";
 
 // Get configuration
 const config = new pulumi.Config();
@@ -14,6 +15,13 @@ const region = awsConfig.require("region");
 
 // Get VPC configuration
 const vpcCidr = config.require("vpcCidr");
+
+// Get EKS configuration
+const clusterName = config.require("clusterName");
+const nodeInstanceType = config.require("nodeInstanceType");
+const desiredCapacity = config.requireNumber("desiredCapacity");
+const minSize = config.requireNumber("minSize");
+const maxSize = config.requireNumber("maxSize");
 
 // Export helper function for tagging
 export function getTags(additionalTags?: Record<string, string>) {
@@ -41,6 +49,21 @@ const networking = new Networking("main", {
     environment: environment,
     region: region,
     tags: getTags(),
+    createEcrEndpoints: false, // Disable ECR endpoints as they're not available in Milan
+});
+
+// Create EKS cluster
+const eksCluster = new EksCluster("main", {
+    clusterName: clusterName,
+    vpcId: networking.vpcId,
+    privateSubnetIds: networking.privateSubnetIds,
+    publicSubnetIds: networking.publicSubnetIds,
+    nodeInstanceType: nodeInstanceType,
+    desiredCapacity: desiredCapacity,
+    minSize: minSize,
+    maxSize: maxSize,
+    eksVersion: "1.29",
+    tags: getTags(),
 });
 
 // Export the region for reference
@@ -61,6 +84,15 @@ export const availabilityZones = pulumi.output(aws.getAvailabilityZones({
     state: "available",
 })).apply(azs => azs.names.slice(0, 3));
 
+// Export EKS cluster outputs
+export const eksClusterName = eksCluster.clusterName;
+export const eksClusterEndpoint = eksCluster.clusterEndpoint;
+export const eksOidcProviderArn = eksCluster.oidcProviderArn;
+export const eksOidcProviderUrl = eksCluster.oidcProviderUrl;
+
+// Export kubeconfig
+export const kubeconfig = pulumi.secret(eksCluster.kubeconfig);
+
 // Summary output
 export const networkingSummary = pulumi.all([
     networking.vpcId,
@@ -72,4 +104,19 @@ export const networkingSummary = pulumi.all([
     privateSubnetsCount: privateSubnets.length,
     region: region,
     environment: environment,
+}));
+
+// EKS summary output
+export const eksSummary = pulumi.all([
+    eksCluster.clusterName,
+    eksCluster.clusterEndpoint,
+    eksCluster.nodeGroup.nodeGroup.id,
+]).apply(([clusterName, endpoint, nodeGroupId]) => ({
+    clusterName: clusterName,
+    clusterEndpoint: endpoint,
+    nodeGroupId: nodeGroupId,
+    region: region,
+    eksVersion: "1.29",
+    nodeInstanceType: nodeInstanceType,
+    nodeCount: desiredCapacity,
 })); 
