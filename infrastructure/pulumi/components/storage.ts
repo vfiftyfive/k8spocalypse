@@ -13,7 +13,7 @@ export interface StorageArgs {
 
 export class Storage extends pulumi.ComponentResource {
     public readonly gp3StorageClass: k8s.storage.v1.StorageClass;
-    public readonly volumeSnapshotClass: k8s.apiextensions.CustomResource;
+    // public readonly volumeSnapshotClass: k8s.apiextensions.CustomResource; // TODO: Uncomment when snapshot controller is installed
     public readonly snapshotControllerRole: aws.iam.Role;
     public readonly dlmLifecyclePolicy: aws.dlm.LifecyclePolicy;
 
@@ -43,6 +43,15 @@ export class Storage extends pulumi.ComponentResource {
         }, { provider: args.k8sProvider, parent: this });
 
         // Create VolumeSnapshotClass for EBS snapshots
+        // Note: This requires the CSI Snapshotter controller to be installed
+        // Install with: kubectl apply -f https://raw.githubusercontent.com/kubernetes-csi/external-snapshotter/release-6.3/client/config/crd/snapshot.storage.k8s.io_volumesnapshotclasses.yaml
+        // kubectl apply -f https://raw.githubusercontent.com/kubernetes-csi/external-snapshotter/release-6.3/client/config/crd/snapshot.storage.k8s.io_volumesnapshots.yaml
+        // kubectl apply -f https://raw.githubusercontent.com/kubernetes-csi/external-snapshotter/release-6.3/client/config/crd/snapshot.storage.k8s.io_volumesnapshotcontents.yaml
+        // kubectl apply -f https://raw.githubusercontent.com/kubernetes-csi/external-snapshotter/release-6.3/deploy/kubernetes/snapshot-controller/rbac-snapshot-controller.yaml
+        // kubectl apply -f https://raw.githubusercontent.com/kubernetes-csi/external-snapshotter/release-6.3/deploy/kubernetes/snapshot-controller/setup-snapshot-controller.yaml
+        
+        // TODO: Uncomment after installing the snapshot controller
+        /*
         this.volumeSnapshotClass = new k8s.apiextensions.CustomResource(`${name}-ebs-snapshot-class`, {
             apiVersion: "snapshot.storage.k8s.io/v1",
             kind: "VolumeSnapshotClass",
@@ -52,13 +61,15 @@ export class Storage extends pulumi.ComponentResource {
                     "snapshot.storage.kubernetes.io/is-default-class": "true",
                 },
             },
-            driver: "ebs.csi.aws.com",
-            deletionPolicy: "Retain", // Keep snapshots even if VolumeSnapshot is deleted
-            parameters: {
-                // Tags for snapshots
-                tagSpecification_1: `ResourceType=snapshot,Tags=[{Key=Cluster,Value=${args.clusterName}},{Key=ManagedBy,Value=Pulumi}]`,
+            spec: {
+                driver: "ebs.csi.aws.com",
+                deletionPolicy: "Delete",
+                parameters: {
+                    // Optional: Add any EBS-specific snapshot parameters here
+                },
             },
         }, { provider: args.k8sProvider, parent: this });
+        */
 
         // Create IAM role for snapshot management
         const oidcProviderUrl = pulumi.output(args.oidcProviderUrl).apply(url => 
@@ -174,7 +185,7 @@ export class Storage extends pulumi.ComponentResource {
         // Register outputs
         this.registerOutputs({
             gp3StorageClassName: this.gp3StorageClass.metadata.name,
-            volumeSnapshotClassName: this.volumeSnapshotClass.metadata.name,
+            // volumeSnapshotClassName: this.volumeSnapshotClass.metadata.name, // TODO: Uncomment when snapshot controller is installed
             dlmPolicyId: this.dlmLifecyclePolicy.id,
         });
     }

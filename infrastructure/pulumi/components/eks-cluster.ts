@@ -60,7 +60,37 @@ export class EksCluster extends pulumi.ComponentResource {
             }, { parent: this });
         });
 
-        // Create the EKS cluster
+        // Create IAM role for node group (before cluster creation)
+        const nodeRole = new aws.iam.Role(`${name}-node-role`, {
+            assumeRolePolicy: JSON.stringify({
+                Version: "2012-10-17",
+                Statement: [{
+                    Action: "sts:AssumeRole",
+                    Effect: "Allow",
+                    Principal: {
+                        Service: "ec2.amazonaws.com",
+                    },
+                }],
+            }),
+            tags: args.tags,
+        }, { parent: this });
+
+        // Attach required policies to node role
+        const nodePolicies = [
+            "arn:aws:iam::aws:policy/AmazonEKSWorkerNodePolicy",
+            "arn:aws:iam::aws:policy/AmazonEKS_CNI_Policy",
+            "arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly",
+            "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore", // For Systems Manager access
+        ];
+
+        nodePolicies.forEach((policyArn, index) => {
+            new aws.iam.RolePolicyAttachment(`${name}-node-policy-${index}`, {
+                policyArn: policyArn,
+                role: nodeRole.name,
+            }, { parent: this });
+        });
+
+        // Create the EKS cluster with instance roles
         this.cluster = new eks.Cluster(`${name}-cluster`, {
             name: args.clusterName,
             version: eksVersion,
@@ -71,6 +101,7 @@ export class EksCluster extends pulumi.ComponentResource {
             endpointPrivateAccess: true,
             endpointPublicAccess: true,
             serviceRole: clusterRole,
+            instanceRoles: [nodeRole], // Add node role to instance roles for managed node groups
             providerCredentialOpts: {
                 profileName: aws.config.profile,
             },
@@ -110,36 +141,6 @@ export class EksCluster extends pulumi.ComponentResource {
 
         this.oidcProviderArn = this.oidcProvider.arn;
         this.oidcProviderUrl = oidcIssuer;
-
-        // Create IAM role for node group
-        const nodeRole = new aws.iam.Role(`${name}-node-role`, {
-            assumeRolePolicy: JSON.stringify({
-                Version: "2012-10-17",
-                Statement: [{
-                    Action: "sts:AssumeRole",
-                    Effect: "Allow",
-                    Principal: {
-                        Service: "ec2.amazonaws.com",
-                    },
-                }],
-            }),
-            tags: args.tags,
-        }, { parent: this });
-
-        // Attach required policies to node role
-        const nodePolicies = [
-            "arn:aws:iam::aws:policy/AmazonEKSWorkerNodePolicy",
-            "arn:aws:iam::aws:policy/AmazonEKS_CNI_Policy",
-            "arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly",
-            "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore", // For Systems Manager access
-        ];
-
-        nodePolicies.forEach((policyArn, index) => {
-            new aws.iam.RolePolicyAttachment(`${name}-node-policy-${index}`, {
-                policyArn: policyArn,
-                role: nodeRole.name,
-            }, { parent: this });
-        });
 
         // Create managed node group
         this.nodeGroup = new eks.ManagedNodeGroup(`${name}-node-group`, {

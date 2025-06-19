@@ -1,0 +1,3 @@
+[submodule "applications/dadjokes"]
+	path = applications/dadjokes
+	url = https://github.com/vfiftyfive/dadjokes
