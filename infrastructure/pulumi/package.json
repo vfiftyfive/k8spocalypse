@@ -1,0 +1,26 @@
+{
+  "name": "k8s-multi-region-dr",
+  "version": "1.0.0",
+  "description": "Multi-region Kubernetes disaster recovery infrastructure",
+  "main": "index.js",
+  "scripts": {
+    "build": "tsc",
+    "deploy:milan": "pulumi up -s milan",
+    "deploy:dublin": "pulumi up -s dublin",
+    "destroy:milan": "pulumi destroy -s milan",
+    "destroy:dublin": "pulumi destroy -s dublin",
+    "preview": "pulumi preview"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "^5.0.0"
+  },
+  "dependencies": {
+    "@pulumi/pulumi": "^3.0.0",
+    "@pulumi/aws": "^6.0.0",
+    "@pulumi/awsx": "^2.0.0",
+    "@pulumi/eks": "^2.0.0",
+    "@pulumi/kubernetes": "^4.0.0",
+    "@pulumi/random": "^4.0.0"
+  }
+} 

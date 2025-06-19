@@ -1,0 +1,10 @@
+config:
+  aws:region: eu-south-1
+  k8s-multi-region-dr:projectName: k8s-multi-region-dr
+  k8s-multi-region-dr:environment: milan
+  k8s-multi-region-dr:vpcCidr: 10.0.0.0/16
+  k8s-multi-region-dr:clusterName: k8s-dr-milan
+  k8s-multi-region-dr:nodeInstanceType: t3.large
+  k8s-multi-region-dr:desiredCapacity: 3
+  k8s-multi-region-dr:minSize: 1
+  k8s-multi-region-dr:maxSize: 6 

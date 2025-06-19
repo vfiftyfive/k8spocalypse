@@ -1,0 +1,10 @@
+name: k8s-multi-region-dr
+runtime:
+  name: nodejs
+  options:
+    typescript: true
+description: Multi-region Kubernetes disaster recovery infrastructure
+config:
+  aws:region: eu-south-1  # Milan region as default
+  k8s-multi-region-dr:projectName: k8s-multi-region-dr
+  k8s-multi-region-dr:environment: dev 
