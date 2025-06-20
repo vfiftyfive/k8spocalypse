@@ -5,7 +5,7 @@ A comprehensive demonstration of Kubernetes disaster recovery patterns across mu
 ## 🎯 Project Overview
 
 This project showcases enterprise-grade disaster recovery capabilities using:
-- **Multi-region EKS clusters** (Milan + Dublin)
+- **Multi-region EKS clusters** (Milan + Dublin) running **EKS 1.33**
 - **Automated DNS failover** with Route53 and Global Accelerator
 - **Multiple backup strategies** (Velero, EBS snapshots, MongoDB replica sets)
 - **Chaos engineering** with built-in fault injection and Chaos Mesh
@@ -18,6 +18,7 @@ This project showcases enterprise-grade disaster recovery capabilities using:
 - 🎭 **Comprehensive fault injection** (application + infrastructure level)
 - 📊 **Health check comparison** (naive vs dependency-aware)
 - 🐟 **Fish shell helpers** for streamlined operations
+- 🤖 **Automated Velero backups** every 6 hours with 7-day retention
 
 ## 🏗️ Architecture
 
@@ -26,10 +27,13 @@ This project showcases enterprise-grade disaster recovery capabilities using:
 │   Milan (EU-S1) │    │  Dublin (EU-W1) │
 │   Primary       │    │   Secondary     │
 ├─────────────────┤    ├─────────────────┤
-│ EKS Cluster     │◄──►│ EKS Cluster     │
+│ EKS 1.33        │◄──►│ EKS 1.33        │
 │ MongoDB Primary │◄──►│ MongoDB Replica │
 │ Redis Cache     │    │ Redis Cache     │
 │ DadJokes App    │    │ DadJokes App    │
+│ Velero + S3     │    │ Velero + S3     │
+│ Prometheus/Graf │    │ Prometheus/Graf │
+│ Chaos Mesh      │    │ Chaos Mesh      │
 └─────────────────┘    └─────────────────┘
          │                       │
          └───────┬───────────────┘
@@ -40,6 +44,34 @@ This project showcases enterprise-grade disaster recovery capabilities using:
     │   DNS Failover (30s)    │
     └─────────────────────────┘
 ```
+
+## 🤖 What's Automated vs Manual
+
+### ✅ Fully Automated (via Pulumi)
+- EKS cluster creation with version 1.33 and latest addon versions
+- VPC and networking infrastructure (10.0.0.0/16 Milan, 10.1.0.0/16 Dublin)
+- Storage classes and EBS CSI driver
+- **Velero installation** with:
+  - S3 bucket creation with encryption
+  - IAM roles with IRSA (IAM Roles for Service Accounts)
+  - Automatic backup schedules (every 6 hours for MongoDB and DadJokes)
+  - 7-day retention policy
+  - Cross-region bucket replication support
+- Monitoring stack (Prometheus/Grafana with persistent storage)
+- Chaos Mesh for chaos engineering
+- Cross-region VPC peering and security groups
+- Private hosted zone (internal.k8sdr.com)
+
+### ⚠️ Semi-Automated (templates provided)
+- CoreDNS configuration (patch file at `infrastructure/pulumi/configs/coredns-patch.yaml`)
+- MongoDB NLB services (requires manual kubectl apply)
+- Fish shell helper functions for operations
+
+### 🔴 Manual Steps Required
+- Application deployment via DevSpace
+- DNS/Global Accelerator setup (requires ALB ARNs from deployed applications)
+- MongoDB cross-region DNS records (requires NLB DNS names)
+- Route53 failover configuration
 
 ## 🚀 Quick Start
 
@@ -319,4 +351,259 @@ This is a demonstration project showcasing DR patterns and chaos engineering pra
 
 ## 📄 License
 
-See [LICENSE](LICENSE) file for details. 
+See [LICENSE](LICENSE) file for details.
+
+## 📋 Demo Criteria Verification
+
+### ✅ Infrastructure Components (Fully Automated)
+- **EKS 1.33 Clusters**: Milan (eu-south-1) + Dublin (eu-west-1) with latest addon versions
+- **VPC & Networking**: 10.0.0.0/16 (Milan), 10.1.0.0/16 (Dublin) with cross-region peering
+- **Storage**: GP3 storage classes, EBS CSI driver, automated DLM snapshot policies
+- **Backup**: Velero with S3 buckets, 6-hour schedules, 7-day retention, IRSA authentication
+- **Monitoring**: Prometheus + Grafana with persistent storage, pre-configured dashboards
+- **Chaos Engineering**: Chaos Mesh with dashboard, network/stress/DNS chaos capabilities
+- **Load Balancing**: AWS Load Balancer Controller with ALB ingress support
+
+### ✅ Application Components (DadJokes)
+- **Multi-Service Architecture**: joke-server, joke-worker, MongoDB, Redis, NATS
+- **Health Endpoints**:
+  - `/livez` - Basic liveness (always returns 200)
+  - `/readyz` - Dependency-aware readiness (checks MongoDB, Redis, NATS, local storage)
+  - `/startz` - Startup probe
+- **Fault Injection**: Built-in HTTP endpoints `/inject/fault` and `/inject/restore`
+- **Business Logic**: OpenAI integration, rating system, caching layer
+- **Cross-Region**: MongoDB replica set support, Redis caching, local storage fallback
+
+### ✅ DR Scenarios (Comprehensive Testing)
+1. **RPO Paradox**: MongoDB (~0s), EBS snapshots (~5min), Velero (~4h) comparison
+2. **DNS Failover**: Sub-60 second RTO with Route53 + Global Accelerator
+3. **Health Check Theatre**: `/healthz` vs `/readyz` behavior under dependency failures
+
+### ✅ Chaos Engineering (Dual Approach)
+- **Application-Level**: HTTP fault injection (instant, business logic aware)
+- **Infrastructure-Level**: Chaos Mesh (network partitions, resource stress, DNS failures)
+
+## 🚀 Detailed Deployment Plan
+
+### Phase 1: Infrastructure Foundation (15-20 minutes)
+
+```fish
+# 1. Setup AWS credentials with yawsso
+yawsso
+set -gx AWS_ACCESS_KEY_ID (aws configure get aws_access_key_id)
+set -gx AWS_SECRET_ACCESS_KEY (aws configure get aws_secret_access_key)
+set -gx AWS_SESSION_TOKEN (aws configure get aws_session_token)
+
+# 2. Deploy base infrastructure
+cd infrastructure/pulumi
+
+# Deploy Milan (primary)
+pulumi up -s milan --yes
+# ✅ Creates: VPC, EKS 1.33, Storage, Velero, Monitoring, Chaos Mesh, ALB Controller
+
+# Deploy Dublin (secondary)
+pulumi up -s dublin --yes
+# ✅ Creates: Same as Milan but in eu-west-1
+
+# 3. Enable cross-region connectivity
+pulumi config set enableCrossRegion true -s milan
+pulumi config set enableCrossRegion true -s dublin
+pulumi up -s milan --yes  # Creates VPC peering
+pulumi up -s dublin --yes # Accepts peering
+```
+
+**What's Automated:**
+- EKS clusters with 1.33 and all required addons
+- Velero backup schedules (every 6 hours)
+- Monitoring stack with persistent storage
+- Cross-region VPC peering and security groups
+- Private hosted zone (internal.k8sdr.com)
+
+### Phase 2: DNS Configuration (Manual - 5 minutes)
+
+**Why Manual:** CoreDNS needs cluster-specific configuration after EKS deployment.
+
+```fish
+# Apply CoreDNS patch to both clusters
+kubectl --context k8s-dr-milan apply -f infrastructure/pulumi/configs/coredns-patch.yaml
+kubectl --context k8s-dr-dublin apply -f infrastructure/pulumi/configs/coredns-patch.yaml
+
+# Restart CoreDNS to pick up changes
+kubectl --context k8s-dr-milan rollout restart deployment/coredns -n kube-system
+kubectl --context k8s-dr-dublin rollout restart deployment/coredns -n kube-system
+```
+
+**How CoreDNS Patch Works:**
+The `coredns-custom` ConfigMap adds a DNS zone override:
+- **Zone**: `internal.k8sdr.com:53` 
+- **Behavior**: Forwards queries to VPC resolver (/etc/resolv.conf)
+- **Cache**: 10-second TTL (matches Route53 TTL for fast failover)
+- **Purpose**: Enables cross-region MongoDB DNS resolution
+
+**Guarantee Mechanism:**
+1. ConfigMap is applied to `kube-system` namespace
+2. CoreDNS automatically picks up ConfigMaps with `.override` suffix
+3. Restart ensures immediate activation
+4. Test with: `kubectl exec -it <pod> -- nslookup mongo.db.internal.k8sdr.com`
+
+### Phase 3: Application Deployment (Manual - 10 minutes)
+
+**Why Manual:** DevSpace requires interactive deployment and region-specific configuration.
+
+```fish
+# 1. Deploy to Milan
+kubectl config use-context k8s-dr-milan
+cd applications/dadjokes/deploy/devspace
+devspace deploy --namespace dev
+
+# 2. Configure multi-region MongoDB (optional)
+mv custom-resources/mongodb.yaml custom-resources/mongodb.yaml.single
+mv custom-resources/mongodb-multiregion.yaml.disabled custom-resources/mongodb.yaml
+sed -i 's/mongodb-2.internal.company.com/mongo.db.internal.k8sdr.com/' custom-resources/mongodb.yaml
+kubectl apply -f custom-resources/mongodb.yaml
+
+# 3. Deploy to Dublin
+kubectl config use-context k8s-dr-dublin
+REGION=dublin devspace deploy --namespace dev
+```
+
+### Phase 4: Cross-Region Services (Manual - 10 minutes)
+
+**Why Manual:** Requires dynamic NLB DNS names that can't be predicted.
+
+```fish
+# 1. Create MongoDB NLB services in both regions
+kubectl --context k8s-dr-milan apply -f - <<EOF
+apiVersion: v1
+kind: Service
+metadata:
+  name: mongo-nlb
+  namespace: dev
+  annotations:
+    service.beta.kubernetes.io/aws-load-balancer-internal: "true"
+    service.beta.kubernetes.io/aws-load-balancer-type: nlb
+spec:
+  type: LoadBalancer
+  selector:
+    app: mongodb-svc
+  ports:
+  - port: 27017
+    targetPort: 27017
+EOF
+
+# Repeat for Dublin...
+
+# 2. Wait for NLB provisioning (2-3 minutes)
+kubectl --context k8s-dr-milan get svc mongo-nlb -n dev -w
+
+# 3. Create Route53 failover records
+MILAN_MONGO_NLB=$(kubectl --context k8s-dr-milan get svc -n dev mongo-nlb -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')
+DUBLIN_MONGO_NLB=$(kubectl --context k8s-dr-dublin get svc -n dev mongo-nlb -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')
+ZONE_ID=$(pulumi stack output privateHostedZoneId -s milan)
+
+# Create Route53 records with AWS CLI (see DEPLOYMENT_CHECKLIST.md)
+```
+
+### Phase 5: DNS & Global Failover (Manual - 15 minutes)
+
+**Why Manual:** Requires ALB ARNs from deployed applications.
+
+```fish
+# 1. Extract ALB information
+MILAN_ALB=$(kubectl --context k8s-dr-milan get ingress -n dev dadjokes-ingress -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')
+DUBLIN_ALB=$(kubectl --context k8s-dr-dublin get ingress -n dev dadjokes-ingress -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')
+
+# 2. Get ALB ARNs and Zone IDs
+MILAN_ALB_ARN=$(aws elbv2 describe-load-balancers --region eu-south-1 --query "LoadBalancers[?DNSName=='${MILAN_ALB}'].LoadBalancerArn" --output text)
+DUBLIN_ALB_ARN=$(aws elbv2 describe-load-balancers --region eu-west-1 --query "LoadBalancers[?DNSName=='${DUBLIN_ALB}'].LoadBalancerArn" --output text)
+
+# 3. Configure Pulumi DNS component
+pulumi config set milanAlbArn $MILAN_ALB_ARN -s dns
+pulumi config set dublinAlbArn $DUBLIN_ALB_ARN -s dns
+# ... (see DNS_DEPLOYMENT_GUIDE.md for complete commands)
+
+# 4. Deploy DNS component
+pulumi up -s dns --yes
+```
+
+### Phase 6: Verification & Testing (5 minutes)
+
+```fish
+# Source helper functions
+source infrastructure/scripts/k8s-dr-helpers.fish
+
+# Verify infrastructure
+dr-status
+dr-health
+
+# Test applications
+curl https://<milan-alb>/joke
+curl https://<dublin-alb>/joke
+
+# Verify Velero backups
+kubectl get schedules -n velero
+kubectl get backups -n velero
+
+# Test health endpoints
+dr-compare-health
+```
+
+## 🔧 CoreDNS Patch Deep Dive
+
+### What It Does
+The CoreDNS patch (`infrastructure/pulumi/configs/coredns-patch.yaml`) configures DNS forwarding for cross-region service discovery:
+
+```yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: coredns-custom
+  namespace: kube-system
+data:
+  internal.override: |
+    internal.k8sdr.com:53 {
+        errors
+        cache 10 {
+            success 10
+            denial 10
+        }
+        forward . /etc/resolv.conf {
+            max_concurrent 1000
+        }
+        reload
+        loadbalance
+    }
+```
+
+### How It Works
+1. **Zone Override**: Creates a DNS zone for `internal.k8sdr.com`
+2. **VPC Resolver**: Forwards queries to AWS VPC resolver via `/etc/resolv.conf`
+3. **Fast Cache**: 10-second TTL matches Route53 for quick failover
+4. **Auto-Discovery**: CoreDNS automatically loads ConfigMaps with `.override` suffix
+
+### Guarantee Mechanism
+- **Automatic Loading**: CoreDNS watches for ConfigMaps in kube-system
+- **Immediate Effect**: Restart ensures configuration is active
+- **Verification**: Test with `nslookup mongo.db.internal.k8sdr.com` from any pod
+- **Fallback**: If patch fails, applications still work with cluster.local DNS
+
+### Why Not Automated
+- **Timing**: EKS addon management conflicts with immediate configuration changes
+- **Cluster-Specific**: Each cluster needs its own CoreDNS restart timing
+- **Safety**: Manual verification ensures DNS resolution works before proceeding
+
+## 🎯 Total Deployment Time
+- **Automated (Pulumi)**: ~20 minutes
+- **Manual Steps**: ~30 minutes  
+- **Total**: ~50 minutes for complete multi-region DR environment
+
+## 🔍 Validation Checklist
+- [ ] Both EKS clusters running with 1.33
+- [ ] Velero schedules active in both regions
+- [ ] CoreDNS forwarding `internal.k8sdr.com` queries
+- [ ] Applications deployed and healthy
+- [ ] Cross-region MongoDB connectivity
+- [ ] Health endpoints returning correct status
+- [ ] Fault injection working via HTTP endpoints
+- [ ] Chaos Mesh experiments can be applied
+- [ ] DNS failover configured (if Global Accelerator deployed) 

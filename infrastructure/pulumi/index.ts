@@ -9,6 +9,9 @@ import { Storage } from "./components/storage";
 import { Dns } from "./components/dns";
 import { Backup } from "./components/backup";
 import { CrossRegion } from "./components/cross-region";
+import { ChaosMesh } from "./components/chaos-mesh";
+import { Monitoring } from "./components/monitoring";
+import { IngressSystem } from "./components/ingress-system";
 
 // Get configuration
 const config = new pulumi.Config();
@@ -66,7 +69,7 @@ const eksCluster = new EksCluster("main", {
   desiredCapacity: desiredCapacity,
   minSize: minSize,
   maxSize: maxSize,
-  eksVersion: "1.30",
+  eksVersion: "1.33",
   tags: getTags(),
 });
 
@@ -78,6 +81,83 @@ const storage = new Storage("main", {
   region: region,
   tags: getTags(),
 });
+
+// Create backup infrastructure
+const backup = new Backup("main", {
+  clusterName: clusterName,
+  k8sProvider: eksCluster.provider,
+  oidcProviderArn: eksCluster.oidcProviderArn,
+  oidcProviderUrl: eksCluster.oidcProviderUrl,
+  region: region,
+  crossRegionDestination: isDRRegion ? "eu-south-1" : "eu-west-1",
+  tags: getTags(),
+});
+
+// Create monitoring infrastructure (Prometheus + Grafana)
+const monitoring = new Monitoring("main", {
+  k8sProvider: eksCluster.provider,
+  clusterName: clusterName,
+  tags: getTags(),
+});
+
+// Create chaos engineering infrastructure
+const chaosMesh = new ChaosMesh("main", {
+  k8sProvider: eksCluster.provider,
+  tags: getTags(),
+});
+
+// Create ingress for monitoring and chaos dashboards
+const ingressSystem = new IngressSystem("main", {
+  k8sProvider: eksCluster.provider,
+  clusterName: clusterName,
+  // certificateArn: "arn:aws:acm:...", // Add your certificate ARN for HTTPS
+  monitoringChart: monitoring.prometheusChart,
+  chaosMeshChart: chaosMesh.chart,
+  tags: getTags(),
+});
+
+// Cross-region setup (only if both regions should be connected)
+let crossRegion: CrossRegion | undefined;
+
+// Only deploy cross-region infrastructure if we have configuration for it
+const enableCrossRegion = config.getBoolean("enableCrossRegion") || false;
+
+if (enableCrossRegion) {
+  try {
+    // Determine peer region and stack name
+    const peerRegion = isMainRegion ? "eu-west-1" : "eu-south-1";
+    const peerStackName = isMainRegion ? "dublin" : "milan";
+    const peerEnvironment = isMainRegion ? "dublin" : "milan";
+    
+    // Get stack reference to peer region
+    const peerStackRef = new pulumi.StackReference(`peer-stack`, {
+      name: `k8s-multi-region-dr/${peerStackName}`,
+    });
+    
+    // Get peer VPC information
+    const peerVpcId = peerStackRef.getOutput("vpcId");
+    const peerVpcCidr = peerStackRef.getOutput("vpcCidr_");
+    
+    // Only create cross-region resources from the main region to avoid duplicates
+    if (isMainRegion) {
+      crossRegion = new CrossRegion("cross-region", {
+        primaryVpcId: networking.vpcId,
+        primaryVpcCidr: pulumi.output(vpcCidr),
+        primaryRegion: region,
+        secondaryVpcId: peerVpcId,
+        secondaryVpcCidr: peerVpcCidr,
+        secondaryRegion: peerRegion,
+        projectName: projectName,
+        environment: environment,
+        tags: getTags(),
+      });
+    }
+    
+    pulumi.log.info(`Cross-region connectivity enabled between ${region} and ${peerRegion}`);
+  } catch (error) {
+    pulumi.log.warn(`Cross-region setup skipped: ${error}. Deploy peer region first.`);
+  }
+}
 
 // Export the region for reference
 export const currentRegion = region;
@@ -106,6 +186,35 @@ export const eksOidcProviderUrl = eksCluster.oidcProviderUrl;
 // Export kubeconfig
 export const kubeconfig = pulumi.secret(eksCluster.kubeconfig);
 
+// Note: DNS component requires ALBs from both regions
+// Should be deployed separately after both regions have ALBs
+// Example usage:
+// const dns = new Dns("main", {
+//   domainName: "dadjokes.k8sdr.com",
+//   primaryAlbArn: primaryAlbArn,
+//   primaryAlbDnsName: primaryAlbDnsName,
+//   primaryAlbZoneId: primaryAlbZoneId,
+//   secondaryAlbArn: secondaryAlbArn,
+//   secondaryAlbDnsName: secondaryAlbDnsName,
+//   secondaryAlbZoneId: secondaryAlbZoneId,
+//   primaryRegion: "eu-south-1",
+//   secondaryRegion: "eu-west-1",
+//   tags: getTags(),
+// });
+
+// Export cross-region outputs (if enabled)
+export const crossRegionEnabled = enableCrossRegion;
+export const vpcPeeringConnectionId = crossRegion?.vpcPeeringConnection?.id;
+export const privateHostedZoneId = crossRegion?.privateHostedZone?.zoneId;
+
+// Export monitoring outputs
+export const monitoringNamespace = monitoring.namespace.metadata.name;
+export const grafanaIngressName = ingressSystem.grafanaIngress.metadata.name;
+
+// Export chaos engineering outputs
+export const chaosMeshNamespace = chaosMesh.namespace.metadata.name;
+export const chaosDashboardIngressName = ingressSystem.chaosDashboardIngress.metadata.name;
+
 // Summary output
 export const networkingSummary = pulumi.all([
   networking.vpcId,
@@ -129,7 +238,7 @@ export const eksSummary = pulumi.all([
   clusterEndpoint: endpoint,
   nodeGroupId: nodeGroupId,
   region: region,
-  eksVersion: "1.30",
+  eksVersion: "1.33",
   nodeInstanceType: nodeInstanceType,
   nodeCount: desiredCapacity,
 })); 

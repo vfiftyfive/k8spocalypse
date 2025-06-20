@@ -30,7 +30,7 @@ export class EksCluster extends pulumi.ComponentResource {
     constructor(name: string, args: EksClusterArgs, opts?: pulumi.ComponentResourceOptions) {
         super("custom:eks:EksCluster", name, {}, opts);
 
-        const eksVersion = args.eksVersion || "1.30";
+        const eksVersion = args.eksVersion || "1.33";
 
         // Create IAM role for EKS cluster
         const clusterRole = new aws.iam.Role(`${name}-cluster-role`, {
@@ -155,7 +155,7 @@ export class EksCluster extends pulumi.ComponentResource {
                 maxSize: args.maxSize,
             },
             diskSize: 100, // GB
-            amiType: "AL2_x86_64", // Amazon Linux 2
+            amiType: "AL2023_x86_64_STANDARD", // Amazon Linux 2023 (required for EKS 1.33+)
             labels: {
                 "node-role": "worker",
             },
@@ -274,7 +274,7 @@ export class EksCluster extends pulumi.ComponentResource {
     }
 
     private installEksAddons(name: string, ebsCsiRole: aws.iam.Role, vpcCniRole: aws.iam.Role): void {
-        // Install VPC CNI Add-on (use default version for K8s 1.30)
+        // Install VPC CNI Add-on (use default version for K8s 1.33)
         new aws.eks.Addon(`${name}-vpc-cni`, {
             clusterName: this.clusterName,
             addonName: "vpc-cni",
@@ -284,7 +284,7 @@ export class EksCluster extends pulumi.ComponentResource {
             resolveConflictsOnUpdate: "OVERWRITE",
         }, { parent: this, dependsOn: [this.cluster, vpcCniRole] });
 
-        // Install CoreDNS Add-on (use default version for K8s 1.30)
+        // Install CoreDNS Add-on (use default version for K8s 1.33)
         new aws.eks.Addon(`${name}-coredns`, {
             clusterName: this.clusterName,
             addonName: "coredns",
@@ -293,7 +293,7 @@ export class EksCluster extends pulumi.ComponentResource {
             resolveConflictsOnUpdate: "OVERWRITE",
         }, { parent: this, dependsOn: [this.cluster] });
 
-        // Install kube-proxy Add-on (use default version for K8s 1.30)
+        // Install kube-proxy Add-on (use default version for K8s 1.33)
         new aws.eks.Addon(`${name}-kube-proxy`, {
             clusterName: this.clusterName,
             addonName: "kube-proxy",
@@ -302,7 +302,7 @@ export class EksCluster extends pulumi.ComponentResource {
             resolveConflictsOnUpdate: "OVERWRITE",
         }, { parent: this, dependsOn: [this.cluster] });
 
-        // Install EBS CSI Driver Add-on (use default version for K8s 1.30)
+        // Install EBS CSI Driver Add-on (use default version for K8s 1.33)
         new aws.eks.Addon(`${name}-ebs-csi-driver`, {
             clusterName: this.clusterName,
             addonName: "aws-ebs-csi-driver",

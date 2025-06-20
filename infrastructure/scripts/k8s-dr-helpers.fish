@@ -334,6 +334,72 @@ function dr-compare-health
     end
 end
 
+# Monitoring functions
+function dr-grafana
+    dr_info "Opening Grafana Dashboard"
+    
+    set -l grafana_ingress (kubectl get ingress -n monitoring grafana-ingress -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null)
+    
+    if test -n "$grafana_ingress"
+        dr_success "Grafana URL: http://$grafana_ingress"
+        dr_info "Default credentials: admin/admin"
+        open "http://$grafana_ingress" 2>/dev/null || echo "Visit: http://$grafana_ingress"
+    else
+        dr_error "Grafana ingress not found. Check if monitoring is deployed."
+        kubectl get ingress -n monitoring
+    end
+end
+
+function dr-chaos-dashboard
+    dr_info "Opening Chaos Mesh Dashboard"
+    
+    set -l chaos_ingress (kubectl get ingress -n chaos-mesh chaos-dashboard-ingress -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null)
+    
+    if test -n "$chaos_ingress"
+        dr_success "Chaos Dashboard URL: http://$chaos_ingress"
+        open "http://$chaos_ingress" 2>/dev/null || echo "Visit: http://$chaos_ingress"
+    else
+        dr_error "Chaos dashboard ingress not found. Check if Chaos Mesh is deployed."
+        kubectl get ingress -n chaos-mesh
+    end
+end
+
+function dr-metrics
+    dr_info "Application Metrics"
+    
+    # Get joke-server pods
+    set -l pods (kubectl get pods -n dev -l app=joke-server -o jsonpath='{.items[*].metadata.name}')
+    
+    if test -n "$pods"
+        for pod in $pods
+            dr_info "Metrics from $pod:"
+            kubectl exec -n dev $pod -- curl -s localhost:9090/metrics | grep -E "(http_requests_total|http_request_duration)" | head -10
+            echo ""
+        end
+    else
+        dr_error "No joke-server pods found"
+    end
+end
+
+function dr-chaos-status
+    dr_info "Chaos Experiments Status"
+    
+    # Check if Chaos Mesh is installed
+    if kubectl get namespace chaos-mesh >/dev/null 2>&1
+        dr_success "Chaos Mesh namespace exists"
+        
+        # List all chaos experiments
+        dr_info "Active Chaos Experiments:"
+        kubectl get chaos -A 2>/dev/null || echo "No active chaos experiments"
+        
+        # Check Chaos Mesh pods
+        dr_info "Chaos Mesh Components:"
+        kubectl get pods -n chaos-mesh
+    else
+        dr_error "Chaos Mesh not installed"
+    end
+end
+
 # Show helper functions
 function dr-help
     dr_info "K8s Multi-Region DR Helper Functions:"
@@ -356,6 +422,12 @@ function dr-help
     echo "  dr-fault <component> [mode] - Inject fault"
     echo "  dr-restore        - Clear all faults"
     echo "  dr-compare-health - Compare health endpoints"
+    echo ""
+    echo "Monitoring & Chaos:"
+    echo "  dr-grafana        - Open Grafana dashboard"
+    echo "  dr-chaos-dashboard - Open Chaos Mesh dashboard"
+    echo "  dr-metrics        - Show application metrics"
+    echo "  dr-chaos-status   - Show chaos experiments status"
     echo ""
     echo "Scenarios:"
     echo "  dr-scenario <1|2|3> - Run DR scenario"
