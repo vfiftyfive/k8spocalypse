@@ -10,6 +10,7 @@ export interface BackupArgs {
     region: string;
     crossRegionDestination?: string;
     tags?: Record<string, string>;
+    albControllerReady?: pulumi.Resource;
 }
 
 export class Backup extends pulumi.ComponentResource {
@@ -164,20 +165,24 @@ export class Backup extends pulumi.ComponentResource {
             fetchOpts: {
                 repo: "https://vmware-tanzu.github.io/helm-charts",
             },
+            skipAwait: true,
             values: {
                 configuration: {
-                    provider: "aws",
-                    backupStorageLocation: {
+                    backupStorageLocation: [{
+                        name: "default",
+                        provider: "aws",
                         bucket: this.veleroBucket.bucket,
                         config: {
                             region: args.region,
                         },
-                    },
-                    volumeSnapshotLocation: {
+                    }],
+                    volumeSnapshotLocation: [{
+                        name: "default", 
+                        provider: "aws",
                         config: {
                             region: args.region,
                         },
-                    },
+                    }],
                 },
                 credentials: {
                     useSecret: false,
@@ -229,7 +234,11 @@ export class Backup extends pulumi.ComponentResource {
                     },
                 },
             },
-        }, { provider: args.k8sProvider, parent: this });
+        }, { 
+            provider: args.k8sProvider, 
+            parent: this,
+            dependsOn: args.albControllerReady ? [args.albControllerReady] : [],
+        });
 
         // Create DLM lifecycle policy for EBS snapshots
         const dlmRole = new aws.iam.Role(`${name}-dlm-role`, {

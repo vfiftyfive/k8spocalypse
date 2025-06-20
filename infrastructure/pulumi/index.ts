@@ -90,23 +90,28 @@ const backup = new Backup("main", {
   oidcProviderUrl: eksCluster.oidcProviderUrl,
   region: region,
   crossRegionDestination: isDRRegion ? "eu-south-1" : "eu-west-1",
+  albControllerReady: eksCluster.albController,
   tags: getTags(),
 });
 
-// Create monitoring infrastructure (Prometheus + Grafana)
+// Create monitoring stack
+// NOTE: Due to webhook timing issues, monitoring may fail on first deployment
+// Run `pulumi up` twice to resolve CRD and webhook timing issues
 const monitoring = new Monitoring("main", {
   k8sProvider: eksCluster.provider,
   clusterName: clusterName,
   tags: getTags(),
 });
 
-// Create chaos engineering infrastructure
+// Create Chaos Mesh for failure injection
 const chaosMesh = new ChaosMesh("main", {
   k8sProvider: eksCluster.provider,
   tags: getTags(),
 });
 
 // Create ingress for monitoring and chaos dashboards
+// NOTE: This may fail if ALB controller webhook isn't ready
+// Run `pulumi up` twice if ingress creation fails
 const ingressSystem = new IngressSystem("main", {
   k8sProvider: eksCluster.provider,
   clusterName: clusterName,

@@ -26,7 +26,8 @@ export class Monitoring extends pulumi.ComponentResource {
             },
         }, { provider: args.k8sProvider, parent: this });
 
-        // Install Prometheus stack (includes Prometheus, AlertManager, Grafana, Node Exporter)
+        // Install Prometheus stack - simplified approach
+        // We'll install everything but skip waiting for CRD resources
         this.prometheusChart = new k8s.helm.v3.Chart(`${name}-prometheus`, {
             chart: "kube-prometheus-stack",
             version: "55.5.0",
@@ -34,7 +35,15 @@ export class Monitoring extends pulumi.ComponentResource {
             fetchOpts: {
                 repo: "https://prometheus-community.github.io/helm-charts",
             },
+            // Skip waiting for resources to avoid CRD timing issues
+            skipAwait: true,
             values: {
+                // Disable admission webhooks to avoid timing issues
+                prometheusOperator: {
+                    admissionWebhooks: {
+                        enabled: false,
+                    },
+                },
                 // Prometheus configuration
                 prometheus: {
                     prometheusSpec: {
@@ -137,7 +146,11 @@ export class Monitoring extends pulumi.ComponentResource {
                 kubeStateMetrics: {
                     enabled: true,
                 },
-                // Disable components we don't need for demo
+                // Enable default rules and ServiceMonitors
+                defaultRules: {
+                    create: true,
+                },
+                // Enable ServiceMonitors
                 kubeApiServer: {
                     enabled: true,
                 },
@@ -164,52 +177,20 @@ export class Monitoring extends pulumi.ComponentResource {
             provider: args.k8sProvider, 
             parent: this,
             dependsOn: [this.namespace],
-        });
-
-        // Wait for CRDs to be installed before creating ServiceMonitor
-        // Create ServiceMonitor for DadJokes application (only after Prometheus CRDs are available)
-        const dadJokesServiceMonitor = new k8s.apiextensions.CustomResource(`${name}-dadjokes-monitor`, {
-            apiVersion: "monitoring.coreos.com/v1",
-            kind: "ServiceMonitor",
-            metadata: {
-                name: "dadjokes-metrics",
-                namespace: this.namespace.metadata.name,
-                labels: {
-                    app: "dadjokes",
-                    release: "prometheus", // Required for prometheus to pick it up
-                },
-            },
-            spec: {
-                selector: {
-                    matchLabels: {
-                        app: "joke-server",
-                    },
-                },
-                namespaceSelector: {
-                    matchNames: ["dev"],
-                },
-                endpoints: [{
-                    port: "http",
-                    path: "/metrics",
-                    interval: "30s",
-                }],
-            },
-        }, { 
-            provider: args.k8sProvider, 
-            parent: this,
-            // Add explicit dependency on the Prometheus chart completion
-            dependsOn: [this.prometheusChart],
-            // Add custom timeout for CRD availability
             customTimeouts: {
                 create: "10m",
-                update: "5m",
+                update: "10m",
                 delete: "5m",
             },
         });
 
+        // Note: ServiceMonitor for DadJokes will be created after the app is deployed
+        // This avoids timing issues with CRDs
+
         // Register outputs
         this.registerOutputs({
-            namespaceName: this.namespace.metadata.name,
+            namespace: this.namespace,
+            prometheusChart: this.prometheusChart,
         });
     }
 } 

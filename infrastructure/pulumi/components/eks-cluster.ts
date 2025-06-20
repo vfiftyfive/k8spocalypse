@@ -26,6 +26,7 @@ export class EksCluster extends pulumi.ComponentResource {
     public readonly oidcProvider: aws.iam.OpenIdConnectProvider;
     public readonly oidcProviderArn: pulumi.Output<string>;
     public readonly oidcProviderUrl: pulumi.Output<string>;
+    public albController?: k8s.helm.v3.Chart;
 
     constructor(name: string, args: EksClusterArgs, opts?: pulumi.ComponentResourceOptions) {
         super("custom:eks:EksCluster", name, {}, opts);
@@ -370,7 +371,7 @@ export class EksCluster extends pulumi.ComponentResource {
         }, { provider: this.provider, parent: this });
 
         // Install AWS Load Balancer Controller using Helm
-        new k8s.helm.v3.Chart(`${name}-alb-controller`, {
+        this.albController = new k8s.helm.v3.Chart(`${name}-alb-controller`, {
             chart: "aws-load-balancer-controller",
             version: "1.6.2",
             namespace: "kube-system",
