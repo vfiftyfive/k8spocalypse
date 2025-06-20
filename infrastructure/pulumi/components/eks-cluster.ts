@@ -30,7 +30,7 @@ export class EksCluster extends pulumi.ComponentResource {
     constructor(name: string, args: EksClusterArgs, opts?: pulumi.ComponentResourceOptions) {
         super("custom:eks:EksCluster", name, {}, opts);
 
-        const eksVersion = args.eksVersion || "1.29";
+        const eksVersion = args.eksVersion || "1.30";
 
         // Create IAM role for EKS cluster
         const clusterRole = new aws.iam.Role(`${name}-cluster-role`, {
@@ -172,9 +172,14 @@ export class EksCluster extends pulumi.ComponentResource {
             kubeconfig: this.kubeconfig.apply(JSON.stringify),
         }, { parent: this });
 
-        // Install EBS CSI Driver
+        // Install EKS Add-ons
         const ebsCsiDriverRole = this.createEbsCsiDriverRole(name, args.clusterName);
-        this.installEbsCsiDriver(name, ebsCsiDriverRole);
+        const vpcCniRole = this.createVpcCniRole(name, args.clusterName);
+        this.installEksAddons(name, ebsCsiDriverRole, vpcCniRole);
+
+        // Install AWS Load Balancer Controller
+        const albControllerRole = this.createAlbControllerRole(name, args.clusterName);
+        this.installAlbController(name, albControllerRole);
 
         // Register outputs
         this.registerOutputs({
@@ -231,13 +236,156 @@ export class EksCluster extends pulumi.ComponentResource {
             },
         }, { provider: this.provider, parent: this });
 
-        // Install EBS CSI Driver as an EKS add-on
+        // This method is now replaced by installEksAddons
+    }
+
+    private createVpcCniRole(name: string, clusterName: string): aws.iam.Role {
+        const oidcProviderUrl = this.oidcProviderUrl.apply(url => 
+            url.replace("https://", "")
+        );
+
+        const vpcCniRole = new aws.iam.Role(`${name}-vpc-cni-role`, {
+            assumeRolePolicy: pulumi.all([this.oidcProviderArn, oidcProviderUrl]).apply(
+                ([oidcArn, oidcUrl]) => JSON.stringify({
+                    Version: "2012-10-17",
+                    Statement: [{
+                        Effect: "Allow",
+                        Principal: {
+                            Federated: oidcArn,
+                        },
+                        Action: "sts:AssumeRoleWithWebIdentity",
+                        Condition: {
+                            StringEquals: {
+                                [`${oidcUrl}:sub`]: "system:serviceaccount:kube-system:aws-node",
+                                [`${oidcUrl}:aud`]: "sts.amazonaws.com",
+                            },
+                        },
+                    }],
+                })
+            ),
+        }, { parent: this });
+
+        new aws.iam.RolePolicyAttachment(`${name}-vpc-cni-policy`, {
+            policyArn: "arn:aws:iam::aws:policy/AmazonEKS_CNI_Policy",
+            role: vpcCniRole.name,
+        }, { parent: this });
+
+        return vpcCniRole;
+    }
+
+    private installEksAddons(name: string, ebsCsiRole: aws.iam.Role, vpcCniRole: aws.iam.Role): void {
+        // Install VPC CNI Add-on (use default version for K8s 1.30)
+        new aws.eks.Addon(`${name}-vpc-cni`, {
+            clusterName: this.clusterName,
+            addonName: "vpc-cni",
+            // No version specified - use default compatible version
+            serviceAccountRoleArn: vpcCniRole.arn,
+            resolveConflictsOnCreate: "OVERWRITE",
+            resolveConflictsOnUpdate: "OVERWRITE",
+        }, { parent: this, dependsOn: [this.cluster, vpcCniRole] });
+
+        // Install CoreDNS Add-on (use default version for K8s 1.30)
+        new aws.eks.Addon(`${name}-coredns`, {
+            clusterName: this.clusterName,
+            addonName: "coredns",
+            // No version specified - use default compatible version
+            resolveConflictsOnCreate: "OVERWRITE",
+            resolveConflictsOnUpdate: "OVERWRITE",
+        }, { parent: this, dependsOn: [this.cluster] });
+
+        // Install kube-proxy Add-on (use default version for K8s 1.30)
+        new aws.eks.Addon(`${name}-kube-proxy`, {
+            clusterName: this.clusterName,
+            addonName: "kube-proxy",
+            // No version specified - use default compatible version
+            resolveConflictsOnCreate: "OVERWRITE",
+            resolveConflictsOnUpdate: "OVERWRITE",
+        }, { parent: this, dependsOn: [this.cluster] });
+
+        // Install EBS CSI Driver Add-on (use default version for K8s 1.30)
         new aws.eks.Addon(`${name}-ebs-csi-driver`, {
             clusterName: this.clusterName,
             addonName: "aws-ebs-csi-driver",
-            addonVersion: "v1.25.0-eksbuild.1", // Use latest stable version
-            serviceAccountRoleArn: role.arn,
+            // No version specified - use default compatible version
+            serviceAccountRoleArn: ebsCsiRole.arn,
+            resolveConflictsOnCreate: "OVERWRITE",
             resolveConflictsOnUpdate: "OVERWRITE",
-        }, { parent: this, dependsOn: [this.cluster, role] });
+        }, { parent: this, dependsOn: [this.cluster, ebsCsiRole] });
+    }
+
+    private createAlbControllerRole(name: string, clusterName: string): aws.iam.Role {
+        const oidcProviderUrl = this.oidcProviderUrl.apply(url => 
+            url.replace("https://", "")
+        );
+
+        const albControllerRole = new aws.iam.Role(`${name}-alb-controller-role`, {
+            assumeRolePolicy: pulumi.all([this.oidcProviderArn, oidcProviderUrl]).apply(
+                ([oidcArn, oidcUrl]) => JSON.stringify({
+                    Version: "2012-10-17",
+                    Statement: [{
+                        Effect: "Allow",
+                        Principal: {
+                            Federated: oidcArn,
+                        },
+                        Action: "sts:AssumeRoleWithWebIdentity",
+                        Condition: {
+                            StringEquals: {
+                                [`${oidcUrl}:sub`]: "system:serviceaccount:kube-system:aws-load-balancer-controller",
+                                [`${oidcUrl}:aud`]: "sts.amazonaws.com",
+                            },
+                        },
+                    }],
+                })
+            ),
+        }, { parent: this });
+
+        // Download and attach the ALB controller IAM policy
+        const albControllerPolicyUrl = "https://raw.githubusercontent.com/kubernetes-sigs/aws-load-balancer-controller/v2.6.2/docs/install/iam_policy.json";
+        
+        const albControllerPolicy = new aws.iam.Policy(`${name}-alb-controller-policy`, {
+            policy: pulumi.output(albControllerPolicyUrl).apply(async (url) => {
+                const response = await fetch(url);
+                return await response.text();
+            }),
+        }, { parent: this });
+
+        new aws.iam.RolePolicyAttachment(`${name}-alb-controller-policy-attachment`, {
+            policyArn: albControllerPolicy.arn,
+            role: albControllerRole.name,
+        }, { parent: this });
+
+        return albControllerRole;
+    }
+
+    private installAlbController(name: string, role: aws.iam.Role): void {
+        // Create service account for ALB controller
+        const albServiceAccount = new k8s.core.v1.ServiceAccount(`${name}-alb-controller-sa`, {
+            metadata: {
+                name: "aws-load-balancer-controller",
+                namespace: "kube-system",
+                annotations: {
+                    "eks.amazonaws.com/role-arn": role.arn,
+                },
+            },
+        }, { provider: this.provider, parent: this });
+
+        // Install AWS Load Balancer Controller using Helm
+        new k8s.helm.v3.Chart(`${name}-alb-controller`, {
+            chart: "aws-load-balancer-controller",
+            version: "1.6.2",
+            namespace: "kube-system",
+            fetchOpts: {
+                repo: "https://aws.github.io/eks-charts",
+            },
+            values: {
+                clusterName: this.clusterName,
+                serviceAccount: {
+                    create: false,
+                    name: "aws-load-balancer-controller",
+                },
+                region: aws.getRegion().then(r => r.name),
+                vpcId: this.cluster.eksCluster.vpcConfig.apply(vpc => vpc.vpcId),
+            },
+        }, { provider: this.provider, parent: this, dependsOn: [albServiceAccount] });
     }
 } 

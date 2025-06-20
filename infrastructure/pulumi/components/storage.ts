@@ -39,6 +39,10 @@ export class Storage extends pulumi.ComponentResource {
                 encrypted: "true",
                 // Filesystem type
                 "csi.storage.k8s.io/fstype": "ext4",
+                // Tags for DLM policy targeting
+                tagSpecification_1: "env=prod",
+                tagSpecification_2: "app=dadjokes-db",
+                tagSpecification_3: `cluster=${args.clusterName}`,
             },
         }, { provider: args.k8sProvider, parent: this });
 

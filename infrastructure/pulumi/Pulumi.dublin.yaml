@@ -1,12 +1,15 @@
+encryptionsalt: v1:qCtnaBAQW+w=:v1:GvfPV9FyT/hVpdZn:cJKnCDn5PCZGRrAjnjoWmVCf/OHBig==
 config:
   aws:region: eu-west-1
-  k8s-multi-region-dr:projectName: k8s-multi-region-dr
   k8s-multi-region-dr:environment: dublin
+  k8s-multi-region-dr:isMainRegion: "false"
+  k8s-multi-region-dr:isDrRegion: "true"
   k8s-multi-region-dr:vpcCidr: 10.1.0.0/16
+  k8s-multi-region-dr:projectName: k8s-multi-region-dr
   k8s-multi-region-dr:clusterName: k8s-dr-dublin
   k8s-multi-region-dr:nodeInstanceType: t3.large
   k8s-multi-region-dr:desiredCapacity: "3"
   k8s-multi-region-dr:minSize: "1"
   k8s-multi-region-dr:maxSize: "6"
   aws:profile: default
-encryptionsalt: v1:cki6b1KRdCY=:v1:e/cazPZH4zurwRrJ:Bkgiia8uUcoAyBw+Te69dunze3H2cw==
+  k8s-multi-region-dr:eksVersion: "1.30"

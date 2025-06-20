@@ -9,4 +9,5 @@ config:
   k8s-multi-region-dr:minSize: "1"
   k8s-multi-region-dr:maxSize: "6"
   aws:profile: default
+  k8s-multi-region-dr:eksVersion: "1.30"
 encryptionsalt: v1:cki6b1KRdCY=:v1:e/cazPZH4zurwRrJ:Bkgiia8uUcoAyBw+Te69dunze3H2cw==

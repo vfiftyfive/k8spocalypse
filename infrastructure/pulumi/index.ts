@@ -6,6 +6,9 @@ import * as k8s from "@pulumi/kubernetes";
 import { Networking } from "./components/networking";
 import { EksCluster } from "./components/eks-cluster";
 import { Storage } from "./components/storage";
+import { Dns } from "./components/dns";
+import { Backup } from "./components/backup";
+import { CrossRegion } from "./components/cross-region";
 
 // Get configuration
 const config = new pulumi.Config();
@@ -63,7 +66,7 @@ const eksCluster = new EksCluster("main", {
   desiredCapacity: desiredCapacity,
   minSize: minSize,
   maxSize: maxSize,
-  eksVersion: "1.29",
+  eksVersion: "1.30",
   tags: getTags(),
 });
 
@@ -126,7 +129,7 @@ export const eksSummary = pulumi.all([
   clusterEndpoint: endpoint,
   nodeGroupId: nodeGroupId,
   region: region,
-  eksVersion: "1.29",
+  eksVersion: "1.30",
   nodeInstanceType: nodeInstanceType,
   nodeCount: desiredCapacity,
 })); 

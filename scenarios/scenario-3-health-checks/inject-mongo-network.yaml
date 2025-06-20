@@ -1,0 +1,22 @@
+apiVersion: chaos-mesh.org/v1alpha1
+kind: NetworkChaos
+metadata:
+  name: mongodb-network-partition
+  namespace: dev
+spec:
+  action: partition
+  mode: all
+  selector:
+    namespaces:
+      - dev
+    labelSelectors:
+      app: mongodb
+  direction: both
+  duration: "5m"
+  target:
+    mode: all
+    selector:
+      namespaces:
+        - dev
+      labelSelectors:
+        app: joke-server 
