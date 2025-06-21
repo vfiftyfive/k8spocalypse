@@ -125,75 +125,52 @@ function dr-health
     end
 end
 
-# Deploy application to a region
+# Deploy application to a specific region
 function dr-deploy
-    if test (count $argv) -ne 1
-        dr_error "Usage: dr-deploy <milan|dublin>"
+    set -l region $argv[1]
+    if test -z "$region"
+        echo "Usage: dr-deploy <region>"
+        echo "Available regions: milan, dublin"
         return 1
     end
+
+    set -l cluster_name "k8s-dr-$region"
+    set -l context_name (dr-get-context $region)
     
-    set -l region $argv[1]
+    echo "🚀 Deploying to $region region..."
     
-    switch $region
-        case milan
-            use-milan
-            set -l target_region eu-south-1
-        case dublin
-            use-dublin
-            set -l target_region eu-west-1
-        case '*'
-            dr_error "Invalid region. Use 'milan' or 'dublin'"
-            return 1
-    end
+    # Switch context
+    kubectl config use-context $context_name
     
-    dr_info "Deploying to $region ($target_region)..."
-    
-    # Store current directory
-    set -l original_dir (pwd)
-    
-    # Navigate to devspace directory
+    # Navigate to the dadjokes deployment directory
     cd applications/dadjokes/deploy/devspace
     
-    # Check if OPENAI_API_KEY is set, if not, decrypt it
-    if test -z "$OPENAI_API_KEY"
-        dr_info "Decrypting OpenAI API key..."
-        set -gx OPENAI_API_KEY (sops --decrypt openai-api-key.enc.yaml | grep OPENAI_API_KEY | cut -d' ' -f6 | base64 -d)
-        if test -z "$OPENAI_API_KEY"
-            dr_error "Failed to decrypt OpenAI API key"
-            cd $original_dir
-            return 1
-        end
-        dr_success "OpenAI API key decrypted"
-    end
+    # Decrypt OpenAI API key
+    echo "🔐 Decrypting OpenAI API key..."
+    sops -d openai-api-key.enc.yaml | sed '/data: |/d' | kubectl apply -n dev -f -
     
-    # Deploy with DevSpace
-    dr_info "Running DevSpace deployment..."
-    env REGION=$target_region devspace deploy -n dev --force-build
+    # Set REGION environment variable for DevSpace
+    set -x REGION $region
     
-    if test $status -eq 0
-        dr_success "Deployment to $region completed successfully"
-        
-        # Wait for deployments to be ready
-        dr_info "Waiting for deployments to be ready..."
-        kubectl wait --for=condition=available --timeout=300s deployment --all -n dev
-        
-        # Show status
-        echo ""
-        dr_success "Dad Jokes application deployed to $region!"
-        echo ""
-        dr_info "Deployment status:"
-        kubectl get pods -n dev
-        echo ""
-        dr_info "Storage:"
-        kubectl get pvc -n dev
-    else
-        dr_error "Deployment to $region failed"
-        cd $original_dir
-        return 1
-    end
+    # Deploy using DevSpace
+    echo "📦 Deploying application with DevSpace..."
+    devspace deploy --namespace dev --no-warn
+    
+    # Apply custom resources to fix service issues
+    echo "🔧 Applying custom resources..."
+    kubectl apply -f custom-resources/ -n dev
+    
+    # Patch the deployment to ensure REGION is set correctly
+    echo "🏷️ Setting region label..."
+    kubectl patch deployment joke-server -n dev --type='json' -p="[{\"op\": \"replace\", \"path\": \"/spec/template/spec/containers/0/env/3/value\", \"value\": \"$region\"}]"
     
     # Return to original directory
-    cd $original_dir
+    cd -
+    
+    echo "✅ Deployment to $region complete!"
+    
+    # Show deployment status
+    dr-status $region
 end
 
 # Trigger manual EBS snapshot
