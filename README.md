@@ -60,21 +60,17 @@ This project showcases enterprise-grade disaster recovery capabilities using:
 
 ```fish
 # Run the setup script
-cd infrastructure/scripts
-./setup.sh
+./scripts/setup.sh
 
 # Load DR helper functions
-source k8s-dr-helpers.fish
+source scripts/k8s-dr-helpers.fish
 ```
 
 ### 2. Deploy Complete Solution
 
 ```fish
-# Navigate to Pulumi directory
-cd infrastructure/pulumi
-
 # Deploy complete solution (infrastructure + applications + Global Accelerator)
-./deploy-complete-solution.fish
+./scripts/deploy-complete-solution.fish
 ```
 
 This single script handles:
@@ -88,7 +84,7 @@ This single script handles:
 
 ```fish
 # Load helper functions (if not already loaded)
-source infrastructure/scripts/k8s-dr-helpers.fish
+source scripts/k8s-dr-helpers.fish
 
 # Check health of both regions
 dr-health
@@ -105,27 +101,30 @@ dr-status
 
 ```
 k8spocalypse/
+├── scripts/                       # 🎯 ALL ESSENTIAL SCRIPTS (CONSOLIDATED)
+│   ├── deploy-complete-solution.fish  # Main deployment script
+│   ├── deploy-global-accelerator.fish # Global Accelerator setup
+│   ├── deploy-app-with-region.fish    # Application deployment
+│   ├── k8s-dr-helpers.fish        # Essential DR operations
+│   ├── setup.sh                   # Initial project setup
+│   ├── snapshot-management.sh     # EBS snapshot utilities
+│   ├── verify-dr-readiness.fish   # DR readiness verification
+│   └── README.md                  # Script documentation
 ├── infrastructure/
-│   ├── pulumi/                    # Infrastructure as Code
-│   │   ├── components/            # Reusable components
-│   │   │   ├── networking.ts      # VPC, subnets, NAT gateways
-│   │   │   ├── eks-cluster.ts     # EKS with ALB controller
-│   │   │   ├── storage.ts         # EBS, storage classes, DLM
-│   │   │   ├── backup.ts          # Velero, snapshot policies
-│   │   │   └── coredns-config.ts  # CoreDNS cross-region config
-│   │   ├── index.ts               # Main orchestration
-│   │   ├── deploy-complete-solution.fish  # Main deployment script
-│   │   ├── deploy-global-accelerator.fish # Global Accelerator setup
-│   │   ├── Pulumi.milan.yaml      # Milan stack config
-│   │   └── Pulumi.dublin.yaml     # Dublin stack config
-│   └── scripts/
-│       ├── k8s-dr-helpers.fish    # Essential DR operations
-│       ├── setup.sh               # Initial project setup
-│       └── snapshot-management.sh # EBS snapshot utilities
+│   └── pulumi/                    # Infrastructure as Code
+│       ├── components/            # Reusable components
+│       │   ├── networking.ts      # VPC, subnets, NAT gateways
+│       │   ├── eks-cluster.ts     # EKS with ALB controller
+│       │   ├── storage.ts         # EBS, storage classes, DLM
+│       │   ├── backup.ts          # Velero, snapshot policies
+│       │   └── coredns-config.ts  # CoreDNS cross-region config
+│       ├── index.ts               # Main orchestration
+│       ├── Pulumi.milan.yaml      # Milan stack config
+│       └── Pulumi.dublin.yaml     # Dublin stack config
 ├── applications/
 │   └── dadjokes/                  # Demo application
 │       ├── cmd/                   # Go microservices
-│       ├── deploy/devspace/       # DevSpace configs (fixed)
+│       ├── deploy/devspace/       # DevSpace configs (single devspace.yaml)
 │       └── internal/              # Business logic + fault injection
 ├── scenarios/                     # DR demonstration scenarios
 │   ├── scenario-1-data-loss/      # RPO comparison
@@ -134,14 +133,15 @@ k8spocalypse/
 └── docs/                          # Step-by-step guides
 ```
 
-## 🛠️ Essential Scripts
+## 🛠️ Essential Scripts (All in `scripts/` directory)
 
 ### Main Deployment
-- **`infrastructure/pulumi/deploy-complete-solution.fish`** - Complete end-to-end deployment
-- **`infrastructure/pulumi/deploy-global-accelerator.fish`** - Global Accelerator setup
+- **`scripts/deploy-complete-solution.fish`** - Complete end-to-end deployment
+- **`scripts/deploy-global-accelerator.fish`** - Global Accelerator setup
+- **`scripts/deploy-app-with-region.fish`** - Application deployment to specific regions
 
 ### Daily Operations  
-- **`infrastructure/scripts/k8s-dr-helpers.fish`** - Essential DR functions:
+- **`scripts/k8s-dr-helpers.fish`** - Essential DR functions:
   - `use-milan` / `use-dublin` - Switch between clusters
   - `dr-health` - Check health of both regions
   - `dr-status` - Detailed cluster status
@@ -149,8 +149,11 @@ k8spocalypse/
   - `dr-snapshot` - Manual EBS snapshots
 
 ### Utilities
-- **`infrastructure/scripts/setup.sh`** - Initial project setup
-- **`infrastructure/scripts/snapshot-management.sh`** - EBS snapshot operations
+- **`scripts/setup.sh`** - Initial project setup
+- **`scripts/snapshot-management.sh`** - EBS snapshot operations
+- **`scripts/verify-dr-readiness.fish`** - DR readiness verification
+
+See `scripts/README.md` for detailed documentation of each script.
 
 ## 🎭 Disaster Recovery Scenarios
 
@@ -192,6 +195,7 @@ cd scenarios/scenario-3-health-checks
 - Cross-region VPC peering and security groups
 - Private hosted zone (internal.k8sdr.com)
 - CoreDNS configuration for cross-region DNS
+- **MongoDB NLBs and DNS records** (managed by Pulumi when enableCrossRegion=true)
 - Application deployment with DevSpace
 - MongoDB and storage configuration fixes
 - Global Accelerator setup (when ALBs are available)

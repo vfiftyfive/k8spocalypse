@@ -160,7 +160,7 @@ export class Backup extends pulumi.ComponentResource {
         // Install Velero using Helm
         const veleroChart = new k8s.helm.v3.Chart(`${name}-velero`, {
             chart: "velero",
-            version: "5.2.0",
+            version: "10.0.6",
             namespace: this.veleroNamespace.metadata.name,
             fetchOpts: {
                 repo: "https://vmware-tanzu.github.io/helm-charts",

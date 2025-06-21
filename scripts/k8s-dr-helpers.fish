@@ -134,13 +134,19 @@ function dr-deploy
         return 1
     end
 
-    set -l cluster_name "k8s-dr-$region"
-    set -l context_name (dr-get-context $region)
+    # Map region to full kubectl context
+    switch $region
+        case milan
+            set -l context_name "arn:aws:eks:eu-south-1:801971731812:cluster/k8s-dr-milan"
+        case dublin
+            set -l context_name "arn:aws:eks:eu-west-1:801971731812:cluster/k8s-dr-dublin"
+        case '*'
+            echo "❌ Invalid region: $region"
+            echo "Available regions: milan, dublin"
+            return 1
+    end
     
     echo "🚀 Deploying to $region region..."
-    
-    # Switch context
-    kubectl config use-context $context_name
     
     # Navigate to the dadjokes deployment directory
     cd applications/dadjokes/deploy/devspace
@@ -151,18 +157,11 @@ function dr-deploy
     
     # Set REGION environment variable for DevSpace
     set -x REGION $region
+    set -x DEVSPACE_NAMESPACE dev
     
-    # Deploy using DevSpace
+    # Deploy using DevSpace with correct context
     echo "📦 Deploying application with DevSpace..."
-    devspace deploy --namespace dev --no-warn
-    
-    # Apply custom resources to fix service issues
-    echo "🔧 Applying custom resources..."
-    kubectl apply -f custom-resources/ -n dev
-    
-    # Patch the deployment to ensure REGION is set correctly
-    echo "🏷️ Setting region label..."
-    kubectl patch deployment joke-server -n dev --type='json' -p="[{\"op\": \"replace\", \"path\": \"/spec/template/spec/containers/0/env/3/value\", \"value\": \"$region\"}]"
+    devspace deploy --namespace dev --no-warn --kube-context "$context_name"
     
     # Return to original directory
     cd -

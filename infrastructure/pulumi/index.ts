@@ -11,6 +11,7 @@ import { Backup } from "./components/backup";
 import { CrossRegion } from "./components/cross-region";
 import { ChaosMesh } from "./components/chaos-mesh";
 import { CoreDnsConfig } from "./components/coredns-config";
+import { MongoDBCrossRegion } from "./components/mongodb-cross-region";
 
 // Get configuration
 const config = new pulumi.Config();
@@ -111,6 +112,7 @@ const coreDnsConfig = new CoreDnsConfig("main", {
 let crossRegion: CrossRegion | undefined;
 let vpcPeeringConnectionId: pulumi.Output<string | undefined> | undefined;
 let privateHostedZoneId: pulumi.Output<string | undefined> | undefined;
+let mongodbCrossRegion: MongoDBCrossRegion | undefined;
 
 // Only deploy cross-region infrastructure if we have configuration for it
 const enableCrossRegion = config.getBoolean("enableCrossRegion") || false;
@@ -148,6 +150,28 @@ if (enableCrossRegion && isMainRegion) {
     privateHostedZoneId = crossRegion.privateHostedZone?.zoneId;
     
     pulumi.log.info(`Cross-region connectivity enabled between ${region} and ${peerRegion}`);
+    
+    // Create MongoDB cross-region infrastructure
+    // Get the secondary provider from the peer stack
+    const peerKubeconfig = peerStackRef.getOutput("kubeconfig");
+    const secondaryProvider = new k8s.Provider("secondary-k8s", {
+      kubeconfig: peerKubeconfig,
+    });
+    
+    mongodbCrossRegion = new MongoDBCrossRegion("mongodb", {
+      primaryProvider: eksCluster.provider,
+      secondaryProvider: secondaryProvider,
+      primaryRegion: region,
+      secondaryRegion: peerRegion,
+      privateHostedZoneId: crossRegion.privateHostedZone.zoneId,
+      primaryVpcId: networking.vpcId,
+      secondaryVpcId: peerVpcId,
+      primarySubnetIds: networking.privateSubnetIds,
+      secondarySubnetIds: peerStackRef.getOutput("privateSubnetIds"),
+      crossRegionSecurityGroupId: crossRegion.crossRegionSecurityGroup.id,
+      namespace: "dev", // Match DevSpace namespace
+      tags: getTags(),
+    });
   } catch (error) {
     pulumi.log.warn(`Failed to setup cross-region connectivity: ${error}. Deploy peer region first.`);
   }
@@ -185,6 +209,11 @@ export const kubeconfig = pulumi.secret(eksCluster.kubeconfig);
 // Export cross-region outputs (if enabled)
 export const crossRegionEnabled = enableCrossRegion;
 export { vpcPeeringConnectionId, privateHostedZoneId };
+
+// Export MongoDB cross-region outputs
+export const mongodbPrimaryNlb = mongodbCrossRegion?.primaryNlbDnsName;
+export const mongodbSecondaryNlb = mongodbCrossRegion?.secondaryNlbDnsName;
+export const mongodbEndpoints = mongodbCrossRegion?.mongoEndpoint;
 
 // Export chaos engineering outputs
 // export const chaosMeshNamespace = chaosMesh.namespace.metadata.name;

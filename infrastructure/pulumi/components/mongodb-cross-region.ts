@@ -44,26 +44,22 @@ export class MongoDBCrossRegion extends pulumi.ComponentResource {
         // Create internal NLB service in primary region (Milan)
         const primaryMongoService = new k8s.core.v1.Service(`${name}-primary-nlb`, {
             metadata: {
-                name: "mongo-nlb",
+                name: "mongodb-nlb-milan",
                 namespace: namespace,
                 annotations: {
-                    "service.beta.kubernetes.io/aws-load-balancer-internal": "true",
                     "service.beta.kubernetes.io/aws-load-balancer-type": "nlb",
                     "service.beta.kubernetes.io/aws-load-balancer-cross-zone-load-balancing-enabled": "true",
-                    "service.beta.kubernetes.io/aws-load-balancer-healthcheck-port": "27017",
-                    "service.beta.kubernetes.io/aws-load-balancer-healthcheck-protocol": "TCP",
                 },
             },
             spec: {
                 type: "LoadBalancer",
                 selector: {
-                    app: "mongodb",
+                    app: "mongodb-svc",
                 },
                 ports: [{
-                    name: "mongo",
+                    protocol: "TCP",
                     port: 27017,
                     targetPort: 27017,
-                    protocol: "TCP",
                 }],
             },
         }, { provider: args.primaryProvider, parent: this, dependsOn: [primaryNamespace] });
@@ -71,26 +67,22 @@ export class MongoDBCrossRegion extends pulumi.ComponentResource {
         // Create internal NLB service in secondary region (Dublin)
         const secondaryMongoService = new k8s.core.v1.Service(`${name}-secondary-nlb`, {
             metadata: {
-                name: "mongo-nlb",
+                name: "mongodb-nlb-dublin",
                 namespace: namespace,
                 annotations: {
-                    "service.beta.kubernetes.io/aws-load-balancer-internal": "true",
                     "service.beta.kubernetes.io/aws-load-balancer-type": "nlb",
                     "service.beta.kubernetes.io/aws-load-balancer-cross-zone-load-balancing-enabled": "true",
-                    "service.beta.kubernetes.io/aws-load-balancer-healthcheck-port": "27017",
-                    "service.beta.kubernetes.io/aws-load-balancer-healthcheck-protocol": "TCP",
                 },
             },
             spec: {
                 type: "LoadBalancer",
                 selector: {
-                    app: "mongodb",
+                    app: "mongodb-svc",
                 },
                 ports: [{
-                    name: "mongo",
+                    protocol: "TCP",
                     port: 27017,
                     targetPort: 27017,
-                    protocol: "TCP",
                 }],
             },
         }, { provider: args.secondaryProvider, parent: this, dependsOn: [secondaryNamespace] });
@@ -128,71 +120,25 @@ export class MongoDBCrossRegion extends pulumi.ComponentResource {
             },
         }, { parent: this });
 
-        // Create failover DNS records in the private hosted zone
-        const primaryRecord = new aws.route53.Record(`${name}-primary-record`, {
+        // Create CNAME records for each region's MongoDB NLB
+        const primaryCnameRecord = new aws.route53.Record(`${name}-primary-cname`, {
             zoneId: args.privateHostedZoneId,
-            name: "mongo.db.internal.k8sdr.com",
-            type: "A",
-            ttl: 10, // Low TTL for fast failover
-            setIdentifier: "Primary-Milan",
-            failoverRoutingPolicies: [{
-                type: "PRIMARY",
-            }],
-            healthCheckId: primaryHealthCheck.id,
-            records: [this.primaryNlbDnsName.apply(dns => {
-                // This would normally resolve to IPs, but for NLB we need the actual IPs
-                // In production, you'd query the NLB for its IPs
-                return dns; // Placeholder - needs actual IP resolution
-            })],
+            name: "mongodb-milan.internal.k8sdr.com",
+            type: "CNAME",
+            ttl: 300,
+            records: [this.primaryNlbDnsName],
         }, { parent: this });
 
-        const secondaryRecord = new aws.route53.Record(`${name}-secondary-record`, {
+        const secondaryCnameRecord = new aws.route53.Record(`${name}-secondary-cname`, {
             zoneId: args.privateHostedZoneId,
-            name: "mongo.db.internal.k8sdr.com",
-            type: "A",
-            ttl: 10,
-            setIdentifier: "Secondary-Dublin",
-            failoverRoutingPolicies: [{
-                type: "SECONDARY",
-            }],
-            healthCheckId: secondaryHealthCheck.id,
-            records: [this.secondaryNlbDnsName.apply(dns => {
-                return dns; // Placeholder - needs actual IP resolution
-            })],
+            name: "mongodb-dublin.internal.k8sdr.com",
+            type: "CNAME",
+            ttl: 300,
+            records: [this.secondaryNlbDnsName],
         }, { parent: this });
 
-        // Create CoreDNS ConfigMap update for both clusters
-        const coreDnsConfig = `
-internal.k8sdr.com:53 {
-    errors
-    cache 10
-    forward . /etc/resolv.conf
-}
-`;
-
-        // Update CoreDNS in primary cluster
-        const primaryCoreDnsPatch = new k8s.core.v1.ConfigMapPatch(`${name}-primary-coredns`, {
-            metadata: {
-                name: "coredns",
-                namespace: "kube-system",
-            },
-            data: {
-                "Corefile": pulumi.interpolate`${coreDnsConfig}`,
-            },
-        }, { provider: args.primaryProvider, parent: this });
-
-        // Update CoreDNS in secondary cluster
-        const secondaryCoreDnsPatch = new k8s.core.v1.ConfigMapPatch(`${name}-secondary-coredns`, {
-            metadata: {
-                name: "coredns",
-                namespace: "kube-system",
-            },
-            data: {
-                "Corefile": pulumi.interpolate`${coreDnsConfig}`,
-            },
-        }, { provider: args.secondaryProvider, parent: this });
-
-        this.mongoEndpoint = pulumi.output("mongo.db.internal.k8sdr.com");
+        // MongoDB endpoints for cross-region connectivity
+        this.mongoEndpoint = pulumi.output("mongodb-milan.internal.k8sdr.com,mongodb-dublin.internal.k8sdr.com");
 
         this.registerOutputs({
             primaryNlbDnsName: this.primaryNlbDnsName,
