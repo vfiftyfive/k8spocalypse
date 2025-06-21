@@ -1,0 +1,44 @@
+# MongoDB Cross-Region Configuration
+# Deploy this after VPC peering and private hosted zone are created
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mongodb-cross-region
+  namespace: dev
+  annotations:
+    service.beta.kubernetes.io/aws-load-balancer-type: "nlb"
+    service.beta.kubernetes.io/aws-load-balancer-internal: "true"
+    service.beta.kubernetes.io/aws-load-balancer-cross-zone-load-balancing-enabled: "true"
+spec:
+  type: LoadBalancer
+  selector:
+    app: mongodb
+  ports:
+    - port: 27017
+      targetPort: 27017
+      protocol: TCP
+  sessionAffinity: None
+---
+# This ConfigMap will store the NLB endpoint after it's created
+# It will be used to create Route53 records
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mongodb-cross-region-config
+  namespace: dev
+data:
+  # These will be populated after NLB is created
+  nlb-endpoint: ""
+  region: ""
+  instructions: |
+    After the NLB is created:
+    1. Get the NLB endpoint: kubectl get svc mongodb-cross-region -n dev -o jsonpath='{.status.loadBalancer.ingress[0].hostname}'
+    2. Create Route53 A record in private hosted zone:
+       - Name: mongo.db.internal.k8sdr.com
+       - Type: A
+       - Alias: Yes
+       - Target: <NLB endpoint>
+       - Routing Policy: Failover
+       - Failover record type: Primary (Milan) or Secondary (Dublin)
+       - Health check: TCP on port 27017 

@@ -196,6 +196,10 @@ export class Backup extends pulumi.ComponentResource {
                         },
                     },
                 },
+                // Force ClusterIP to avoid ALB webhook issues
+                service: {
+                    type: "ClusterIP",
+                },
                 initContainers: [{
                     name: "velero-plugin-for-aws",
                     image: "velero/velero-plugin-for-aws:v1.8.0",

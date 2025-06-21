@@ -13,3 +13,4 @@ config:
   k8s-multi-region-dr:maxSize: "6"
   aws:profile: default
   k8s-multi-region-dr:eksVersion: "1.30"
+  k8s-multi-region-dr:enableCrossRegion: "true"

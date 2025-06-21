@@ -8,8 +8,9 @@ This project showcases enterprise-grade disaster recovery capabilities using:
 - **Multi-region EKS clusters** (Milan + Dublin) running **EKS 1.33**
 - **Automated DNS failover** with Route53 and Global Accelerator
 - **Multiple backup strategies** (Velero, EBS snapshots, MongoDB replica sets)
-- **Chaos engineering** with built-in fault injection and Chaos Mesh
+- **Chaos engineering** with built-in fault injection scenarios
 - **Infrastructure as Code** with Pulumi TypeScript
+- **Fish shell automation** for streamlined operations
 
 ### Key Features
 
@@ -32,8 +33,6 @@ This project showcases enterprise-grade disaster recovery capabilities using:
 │ Redis Cache     │    │ Redis Cache     │
 │ DadJokes App    │    │ DadJokes App    │
 │ Velero + S3     │    │ Velero + S3     │
-│ Prometheus/Graf │    │ Prometheus/Graf │
-│ Chaos Mesh      │    │ Chaos Mesh      │
 └─────────────────┘    └─────────────────┘
          │                       │
          └───────┬───────────────┘
@@ -45,108 +44,64 @@ This project showcases enterprise-grade disaster recovery capabilities using:
     └─────────────────────────┘
 ```
 
-## 🤖 What's Automated vs Manual
-
-### ✅ Fully Automated (via Pulumi)
-- EKS cluster creation with version 1.33 and latest addon versions
-- VPC and networking infrastructure (10.0.0.0/16 Milan, 10.1.0.0/16 Dublin)
-- Storage classes and EBS CSI driver
-- **Velero installation** with:
-  - S3 bucket creation with encryption
-  - IAM roles with IRSA (IAM Roles for Service Accounts)
-  - Automatic backup schedules (every 6 hours for MongoDB and DadJokes)
-  - 7-day retention policy
-  - Cross-region bucket replication support
-- Monitoring stack (Prometheus/Grafana with persistent storage)
-- Chaos Mesh for chaos engineering
-- Cross-region VPC peering and security groups
-- Private hosted zone (internal.k8sdr.com)
-
-### ⚠️ Semi-Automated (templates provided)
-- CoreDNS configuration (patch file at `infrastructure/pulumi/configs/coredns-patch.yaml`)
-- MongoDB NLB services (requires manual kubectl apply)
-- Fish shell helper functions for operations
-
-### 🔴 Manual Steps Required
-- Application deployment via DevSpace
-- DNS/Global Accelerator setup (requires ALB ARNs from deployed applications)
-- MongoDB cross-region DNS records (requires NLB DNS names)
-- Route53 failover configuration
-
 ## 🚀 Quick Start
 
 ### Prerequisites
 
-- **Fish shell** (recommended) or bash
+- **Fish shell** (strongly recommended - user prefers over PowerShell/bash)
 - **AWS CLI** with SSO configured
 - **yawsso** for credential management
 - **Pulumi CLI** (v3.0+)
 - **kubectl** and **helm**
 - **jq** for JSON processing
+- **devspace** CLI for application deployment
 
-### 1. AWS Credentials Setup
+### 1. Initial Setup
 
 ```fish
-# Install yawsso if not already installed
-pip install yawsso
+# Run the setup script
+cd infrastructure/scripts
+./setup.sh
 
-# Configure AWS SSO (one-time setup)
-aws configure sso
-
-# Refresh credentials with yawsso
-yawsso
-
-# Export credentials for Pulumi (fish syntax)
-set -gx AWS_ACCESS_KEY_ID (aws configure get aws_access_key_id)
-set -gx AWS_SECRET_ACCESS_KEY (aws configure get aws_secret_access_key)
-set -gx AWS_SESSION_TOKEN (aws configure get aws_session_token)
-
-# Verify credentials
-aws sts get-caller-identity
+# Load DR helper functions
+source k8s-dr-helpers.fish
 ```
 
-### 2. Deploy Infrastructure
+### 2. Deploy Complete Solution
 
 ```fish
 # Navigate to Pulumi directory
 cd infrastructure/pulumi
 
-# Deploy Milan (primary) region
-pulumi stack select milan
-pulumi up
-
-# Deploy Dublin (secondary) region
-pulumi stack select dublin
-pulumi up
+# Deploy complete solution (infrastructure + applications + Global Accelerator)
+./deploy-complete-solution.fish
 ```
 
-### 3. Load Helper Functions
+This single script handles:
+- Infrastructure deployment to both regions
+- Application deployment with proper configuration
+- MongoDB and storage fixes
+- Global Accelerator setup
+- Health verification
+
+### 3. Verify Deployment
 
 ```fish
-# From project root
+# Load helper functions (if not already loaded)
 source infrastructure/scripts/k8s-dr-helpers.fish
 
-# Verify both clusters
+# Check health of both regions
 dr-health
-```
 
-### 4. Deploy Applications
-
-```fish
-# Deploy to Milan
-dr-deploy milan
-
-# Deploy to Dublin
-dr-deploy dublin
-
-# Check status
+# Check detailed status
 use-milan
 dr-status
-use-dublin
+
+use-dublin  
 dr-status
 ```
 
-## 📁 Project Structure
+## 📁 Project Structure (Cleaned Up)
 
 ```
 k8spocalypse/
@@ -156,27 +111,46 @@ k8spocalypse/
 │   │   │   ├── networking.ts      # VPC, subnets, NAT gateways
 │   │   │   ├── eks-cluster.ts     # EKS with ALB controller
 │   │   │   ├── storage.ts         # EBS, storage classes, DLM
-│   │   │   ├── dns.ts             # Route53, Global Accelerator
-│   │   │   └── backup.ts          # Velero, snapshot policies
+│   │   │   ├── backup.ts          # Velero, snapshot policies
+│   │   │   └── coredns-config.ts  # CoreDNS cross-region config
 │   │   ├── index.ts               # Main orchestration
+│   │   ├── deploy-complete-solution.fish  # Main deployment script
+│   │   ├── deploy-global-accelerator.fish # Global Accelerator setup
 │   │   ├── Pulumi.milan.yaml      # Milan stack config
 │   │   └── Pulumi.dublin.yaml     # Dublin stack config
 │   └── scripts/
-│       ├── k8s-dr-helpers.fish    # Fish shell helpers
-│       └── README.md              # Helper documentation
+│       ├── k8s-dr-helpers.fish    # Essential DR operations
+│       ├── setup.sh               # Initial project setup
+│       └── snapshot-management.sh # EBS snapshot utilities
 ├── applications/
-│   ├── dadjokes/                  # Demo application
-│   │   ├── cmd/                   # Go microservices
-│   │   ├── deploy/devspace/       # DevSpace configs
-│   │   └── internal/              # Business logic + fault injection
-│   ├── deploy-app-milan.sh        # Milan deployment script
-│   └── deploy-app-dublin.sh       # Dublin deployment script
+│   └── dadjokes/                  # Demo application
+│       ├── cmd/                   # Go microservices
+│       ├── deploy/devspace/       # DevSpace configs (fixed)
+│       └── internal/              # Business logic + fault injection
 ├── scenarios/                     # DR demonstration scenarios
 │   ├── scenario-1-data-loss/      # RPO comparison
 │   ├── scenario-2-failover/       # DNS failover testing
 │   └── scenario-3-health-checks/  # Health check comparison
 └── docs/                          # Step-by-step guides
 ```
+
+## 🛠️ Essential Scripts
+
+### Main Deployment
+- **`infrastructure/pulumi/deploy-complete-solution.fish`** - Complete end-to-end deployment
+- **`infrastructure/pulumi/deploy-global-accelerator.fish`** - Global Accelerator setup
+
+### Daily Operations  
+- **`infrastructure/scripts/k8s-dr-helpers.fish`** - Essential DR functions:
+  - `use-milan` / `use-dublin` - Switch between clusters
+  - `dr-health` - Check health of both regions
+  - `dr-status` - Detailed cluster status
+  - `dr-deploy <region>` - Deploy applications to a region
+  - `dr-snapshot` - Manual EBS snapshots
+
+### Utilities
+- **`infrastructure/scripts/setup.sh`** - Initial project setup
+- **`infrastructure/scripts/snapshot-management.sh`** - EBS snapshot operations
 
 ## 🎭 Disaster Recovery Scenarios
 
@@ -201,409 +175,95 @@ cd scenarios/scenario-2-failover
 Compares naive vs dependency-aware health checks:
 ```fish
 cd scenarios/scenario-3-health-checks
-./inject-mongo-pool.sh    # Built-in fault injection
-kubectl apply -f inject-redis-stress.yaml  # Chaos Mesh
-./validate.sh             # Compare /healthz vs /readyz
+./inject-mongo-pool.sh    # MongoDB connection pool exhaustion
+./inject-openai-429.sh    # OpenAI API rate limiting
+./inject-redis-oom.sh     # Redis out-of-memory
+./validate.sh             # Compare health check responses
 ```
 
-## 🐟 Fish Shell Helpers
+## 🤖 What's Automated vs Manual
 
-The project includes comprehensive fish shell helpers for streamlined operations:
+### ✅ Fully Automated
+- EKS cluster creation with version 1.33 and latest addon versions
+- VPC and networking infrastructure (10.0.0.0/16 Milan, 10.1.0.0/16 Dublin)
+- Storage classes and EBS CSI driver
+- Velero installation with S3 buckets and IAM roles
+- Automatic backup schedules (every 6 hours, 7-day retention)
+- Cross-region VPC peering and security groups
+- Private hosted zone (internal.k8sdr.com)
+- CoreDNS configuration for cross-region DNS
+- Application deployment with DevSpace
+- MongoDB and storage configuration fixes
+- Global Accelerator setup (when ALBs are available)
 
-### Cluster Management
-```fish
-use-milan          # Switch to Milan cluster
-use-dublin         # Switch to Dublin cluster
-dr-status          # Show current cluster status
-dr-health          # Check health of both regions
-```
+### ⚠️ Manual Steps (for learning/troubleshooting)
+- Individual scenario execution
+- Manual snapshot operations
+- Advanced chaos engineering experiments
 
-### Backup & Recovery
-```fish
-dr-snapshot        # Create manual EBS snapshot
-dr-backup          # Create manual Velero backup
-dr-list-backups    # List all available backups
-```
+## 🔧 Troubleshooting
 
-### Fault Injection
-```fish
-dr-fault mongodb pool-exhausted    # Inject MongoDB failure
-dr-fault redis oom                 # Inject Redis OOM
-dr-fault health 500                # Make health checks fail
-dr-restore                         # Clear all faults
-dr-compare-health                  # Compare health endpoints
-```
+### Common Issues
 
-### Scenarios
-```fish
-dr-scenario 1      # Run RPO paradox scenario
-dr-scenario 2      # Run failover scenario
-dr-scenario 3      # Run health check scenario
-```
+1. **OpenAI API Key**: The deployment script automatically decrypts the SOPS-encrypted key
+2. **MongoDB not starting**: Fixed in deploy-complete-solution.fish with proper readiness probes
+3. **joke-server StatefulSet issues**: Fixed by converting to Deployment
+4. **ALB SSL certificate errors**: Fixed by using HTTP-only configuration
 
-## 🔧 Chaos Engineering
+### Useful Commands
 
-### Built-in Fault Injection
-The DadJokes application includes HTTP endpoints for fault injection:
-- `/inject/fault` - Inject various failure modes
-- `/inject/restore` - Clear all injected faults
-- `/healthz` - Naive health check (port-only)
-- `/readyz` - Dependency-aware health check
-
-### Chaos Mesh Integration
-Infrastructure-level chaos testing:
-```fish
-# Install Chaos Mesh
-helm repo add chaos-mesh https://charts.chaos-mesh.org
-helm install chaos-mesh chaos-mesh/chaos-mesh -n chaos-mesh --create-namespace
-
-# Apply chaos experiments
-kubectl apply -f scenarios/scenario-3-health-checks/inject-redis-stress.yaml
-kubectl apply -f scenarios/scenario-3-health-checks/inject-mongo-network.yaml
-```
-
-## 📊 Key Metrics
-
-- **RTO (Recovery Time Objective)**: < 60 seconds for DNS failover
-- **RPO (Recovery Point Objective)**: 
-  - MongoDB replica: ~0 seconds
-  - EBS snapshots: ~5 minutes
-  - Velero backups: ~4 hours
-- **Health Check Interval**: 30 seconds
-- **DNS TTL**: 30 seconds for fast failover
-
-## 🔍 Monitoring & Validation
-
-### Health Checks
-```fish
-# Compare health endpoints
-dr-compare-health
-
-# Check Global Accelerator status
-aws globalaccelerator list-accelerators
-```
-
-### Backup Validation
-```fish
-# List all backup methods
-dr-list-backups
-
-# Check Velero status
-velero backup get
-velero restore get
-```
-
-### Failover Testing
-```fish
-# Monitor DNS resolution
-watch -n 5 'dig +short api.dadjokes.global'
-
-# Test endpoint availability
-while true; do 
-  curl -s -o /dev/null -w "Status: %{http_code} - Time: $(date)\n" https://api.dadjokes.global/health
-  sleep 5
-end
-```
-
-## 🛠️ Troubleshooting
-
-### AWS Credentials Issues
-```fish
-# Refresh yawsso credentials
-yawsso
-set -gx AWS_ACCESS_KEY_ID (aws configure get aws_access_key_id)
-set -gx AWS_SECRET_ACCESS_KEY (aws configure get aws_secret_access_key)
-set -gx AWS_SESSION_TOKEN (aws configure get aws_session_token)
-```
-
-### Cluster Access Issues
-```fish
-# Update kubeconfig
-aws eks update-kubeconfig --region eu-south-1 --name k8s-dr-milan
-aws eks update-kubeconfig --region eu-west-1 --name k8s-dr-dublin
-
-# Test connectivity
-dr-health
-```
-
-### Application Issues
 ```fish
 # Check pod status
 kubectl get pods -n dev
 
-# Check service endpoints
-kubectl get endpoints -n dev
+# Check MongoDB status
+kubectl get mongodbcommunity -n dev
 
-# Clear any injected faults
-dr-restore
+# Check ALB status
+kubectl get ingress -n dev
+
+# View logs
+kubectl logs -n dev deployment/joke-server
+
+# Manual snapshot
+dr-snapshot
 ```
 
-## 📚 Documentation
+## 📊 Monitoring and Observability
 
-- [Infrastructure Setup](docs/step-3-eks-cluster.md)
-- [Storage Configuration](docs/step-4-storage-configuration.md)
-- [Networking Setup](docs/step-2-networking-setup.md)
-- [Troubleshooting Guide](docs/troubleshooting.md)
+The solution includes comprehensive monitoring:
+- **Health endpoints** at `/health` on all ALBs
+- **Application metrics** via Prometheus (when enabled)
+- **EBS snapshot monitoring** via DLM policies
+- **Cross-region connectivity** verification
+
+## 🎯 Learning Objectives
+
+This demo teaches:
+1. **Multi-region architecture patterns** in Kubernetes
+2. **Different backup strategies** and their trade-offs
+3. **DNS failover** mechanisms and timing
+4. **Chaos engineering** principles and practices
+5. **Infrastructure as Code** with Pulumi
+6. **Fish shell automation** for DevOps workflows
+
+## 📝 Next Steps
+
+After successful deployment:
+1. Run through all three disaster recovery scenarios
+2. Experiment with different failure modes
+3. Measure and compare recovery times
+4. Understand the trade-offs between different backup strategies
+5. Practice operational procedures using the fish shell helpers
 
 ## 🤝 Contributing
 
-This is a demonstration project showcasing DR patterns and chaos engineering practices. Feel free to adapt the patterns for your own use cases.
+This is a learning project. Feel free to:
+- Experiment with different configurations
+- Add new chaos engineering scenarios
+- Improve the automation scripts
+- Document lessons learned
 
-## 📄 License
+---
 
-See [LICENSE](LICENSE) file for details.
-
-## 📋 Demo Criteria Verification
-
-### ✅ Infrastructure Components (Fully Automated)
-- **EKS 1.33 Clusters**: Milan (eu-south-1) + Dublin (eu-west-1) with latest addon versions
-- **VPC & Networking**: 10.0.0.0/16 (Milan), 10.1.0.0/16 (Dublin) with cross-region peering
-- **Storage**: GP3 storage classes, EBS CSI driver, automated DLM snapshot policies
-- **Backup**: Velero with S3 buckets, 6-hour schedules, 7-day retention, IRSA authentication
-- **Monitoring**: Prometheus + Grafana with persistent storage, pre-configured dashboards
-- **Chaos Engineering**: Chaos Mesh with dashboard, network/stress/DNS chaos capabilities
-- **Load Balancing**: AWS Load Balancer Controller with ALB ingress support
-
-### ✅ Application Components (DadJokes)
-- **Multi-Service Architecture**: joke-server, joke-worker, MongoDB, Redis, NATS
-- **Health Endpoints**:
-  - `/livez` - Basic liveness (always returns 200)
-  - `/readyz` - Dependency-aware readiness (checks MongoDB, Redis, NATS, local storage)
-  - `/startz` - Startup probe
-- **Fault Injection**: Built-in HTTP endpoints `/inject/fault` and `/inject/restore`
-- **Business Logic**: OpenAI integration, rating system, caching layer
-- **Cross-Region**: MongoDB replica set support, Redis caching, local storage fallback
-
-### ✅ DR Scenarios (Comprehensive Testing)
-1. **RPO Paradox**: MongoDB (~0s), EBS snapshots (~5min), Velero (~4h) comparison
-2. **DNS Failover**: Sub-60 second RTO with Route53 + Global Accelerator
-3. **Health Check Theatre**: `/healthz` vs `/readyz` behavior under dependency failures
-
-### ✅ Chaos Engineering (Dual Approach)
-- **Application-Level**: HTTP fault injection (instant, business logic aware)
-- **Infrastructure-Level**: Chaos Mesh (network partitions, resource stress, DNS failures)
-
-## 🚀 Detailed Deployment Plan
-
-### Phase 1: Infrastructure Foundation (15-20 minutes)
-
-```fish
-# 1. Setup AWS credentials with yawsso
-yawsso
-set -gx AWS_ACCESS_KEY_ID (aws configure get aws_access_key_id)
-set -gx AWS_SECRET_ACCESS_KEY (aws configure get aws_secret_access_key)
-set -gx AWS_SESSION_TOKEN (aws configure get aws_session_token)
-
-# 2. Deploy base infrastructure
-cd infrastructure/pulumi
-
-# Deploy Milan (primary)
-pulumi up -s milan --yes
-# ✅ Creates: VPC, EKS 1.33, Storage, Velero, Monitoring, Chaos Mesh, ALB Controller
-
-# Deploy Dublin (secondary)
-pulumi up -s dublin --yes
-# ✅ Creates: Same as Milan but in eu-west-1
-
-# 3. Enable cross-region connectivity
-pulumi config set enableCrossRegion true -s milan
-pulumi config set enableCrossRegion true -s dublin
-pulumi up -s milan --yes  # Creates VPC peering
-pulumi up -s dublin --yes # Accepts peering
-```
-
-**What's Automated:**
-- EKS clusters with 1.33 and all required addons
-- Velero backup schedules (every 6 hours)
-- Monitoring stack with persistent storage
-- Cross-region VPC peering and security groups
-- Private hosted zone (internal.k8sdr.com)
-
-### Phase 2: DNS Configuration (Manual - 5 minutes)
-
-**Why Manual:** CoreDNS needs cluster-specific configuration after EKS deployment.
-
-```fish
-# Apply CoreDNS patch to both clusters
-kubectl --context k8s-dr-milan apply -f infrastructure/pulumi/configs/coredns-patch.yaml
-kubectl --context k8s-dr-dublin apply -f infrastructure/pulumi/configs/coredns-patch.yaml
-
-# Restart CoreDNS to pick up changes
-kubectl --context k8s-dr-milan rollout restart deployment/coredns -n kube-system
-kubectl --context k8s-dr-dublin rollout restart deployment/coredns -n kube-system
-```
-
-**How CoreDNS Patch Works:**
-The `coredns-custom` ConfigMap adds a DNS zone override:
-- **Zone**: `internal.k8sdr.com:53` 
-- **Behavior**: Forwards queries to VPC resolver (/etc/resolv.conf)
-- **Cache**: 10-second TTL (matches Route53 TTL for fast failover)
-- **Purpose**: Enables cross-region MongoDB DNS resolution
-
-**Guarantee Mechanism:**
-1. ConfigMap is applied to `kube-system` namespace
-2. CoreDNS automatically picks up ConfigMaps with `.override` suffix
-3. Restart ensures immediate activation
-4. Test with: `kubectl exec -it <pod> -- nslookup mongo.db.internal.k8sdr.com`
-
-### Phase 3: Application Deployment (Manual - 10 minutes)
-
-**Why Manual:** DevSpace requires interactive deployment and region-specific configuration.
-
-```fish
-# 1. Deploy to Milan
-kubectl config use-context k8s-dr-milan
-cd applications/dadjokes/deploy/devspace
-devspace deploy --namespace dev
-
-# 2. Configure multi-region MongoDB (optional)
-mv custom-resources/mongodb.yaml custom-resources/mongodb.yaml.single
-mv custom-resources/mongodb-multiregion.yaml.disabled custom-resources/mongodb.yaml
-sed -i 's/mongodb-2.internal.company.com/mongo.db.internal.k8sdr.com/' custom-resources/mongodb.yaml
-kubectl apply -f custom-resources/mongodb.yaml
-
-# 3. Deploy to Dublin
-kubectl config use-context k8s-dr-dublin
-REGION=dublin devspace deploy --namespace dev
-```
-
-### Phase 4: Cross-Region Services (Manual - 10 minutes)
-
-**Why Manual:** Requires dynamic NLB DNS names that can't be predicted.
-
-```fish
-# 1. Create MongoDB NLB services in both regions
-kubectl --context k8s-dr-milan apply -f - <<EOF
-apiVersion: v1
-kind: Service
-metadata:
-  name: mongo-nlb
-  namespace: dev
-  annotations:
-    service.beta.kubernetes.io/aws-load-balancer-internal: "true"
-    service.beta.kubernetes.io/aws-load-balancer-type: nlb
-spec:
-  type: LoadBalancer
-  selector:
-    app: mongodb-svc
-  ports:
-  - port: 27017
-    targetPort: 27017
-EOF
-
-# Repeat for Dublin...
-
-# 2. Wait for NLB provisioning (2-3 minutes)
-kubectl --context k8s-dr-milan get svc mongo-nlb -n dev -w
-
-# 3. Create Route53 failover records
-MILAN_MONGO_NLB=$(kubectl --context k8s-dr-milan get svc -n dev mongo-nlb -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')
-DUBLIN_MONGO_NLB=$(kubectl --context k8s-dr-dublin get svc -n dev mongo-nlb -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')
-ZONE_ID=$(pulumi stack output privateHostedZoneId -s milan)
-
-# Create Route53 records with AWS CLI (see DEPLOYMENT_CHECKLIST.md)
-```
-
-### Phase 5: DNS & Global Failover (Manual - 15 minutes)
-
-**Why Manual:** Requires ALB ARNs from deployed applications.
-
-```fish
-# 1. Extract ALB information
-MILAN_ALB=$(kubectl --context k8s-dr-milan get ingress -n dev dadjokes-ingress -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')
-DUBLIN_ALB=$(kubectl --context k8s-dr-dublin get ingress -n dev dadjokes-ingress -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')
-
-# 2. Get ALB ARNs and Zone IDs
-MILAN_ALB_ARN=$(aws elbv2 describe-load-balancers --region eu-south-1 --query "LoadBalancers[?DNSName=='${MILAN_ALB}'].LoadBalancerArn" --output text)
-DUBLIN_ALB_ARN=$(aws elbv2 describe-load-balancers --region eu-west-1 --query "LoadBalancers[?DNSName=='${DUBLIN_ALB}'].LoadBalancerArn" --output text)
-
-# 3. Configure Pulumi DNS component
-pulumi config set milanAlbArn $MILAN_ALB_ARN -s dns
-pulumi config set dublinAlbArn $DUBLIN_ALB_ARN -s dns
-# ... (see DNS_DEPLOYMENT_GUIDE.md for complete commands)
-
-# 4. Deploy DNS component
-pulumi up -s dns --yes
-```
-
-### Phase 6: Verification & Testing (5 minutes)
-
-```fish
-# Source helper functions
-source infrastructure/scripts/k8s-dr-helpers.fish
-
-# Verify infrastructure
-dr-status
-dr-health
-
-# Test applications
-curl https://<milan-alb>/joke
-curl https://<dublin-alb>/joke
-
-# Verify Velero backups
-kubectl get schedules -n velero
-kubectl get backups -n velero
-
-# Test health endpoints
-dr-compare-health
-```
-
-## 🔧 CoreDNS Patch Deep Dive
-
-### What It Does
-The CoreDNS patch (`infrastructure/pulumi/configs/coredns-patch.yaml`) configures DNS forwarding for cross-region service discovery:
-
-```yaml
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: coredns-custom
-  namespace: kube-system
-data:
-  internal.override: |
-    internal.k8sdr.com:53 {
-        errors
-        cache 10 {
-            success 10
-            denial 10
-        }
-        forward . /etc/resolv.conf {
-            max_concurrent 1000
-        }
-        reload
-        loadbalance
-    }
-```
-
-### How It Works
-1. **Zone Override**: Creates a DNS zone for `internal.k8sdr.com`
-2. **VPC Resolver**: Forwards queries to AWS VPC resolver via `/etc/resolv.conf`
-3. **Fast Cache**: 10-second TTL matches Route53 for quick failover
-4. **Auto-Discovery**: CoreDNS automatically loads ConfigMaps with `.override` suffix
-
-### Guarantee Mechanism
-- **Automatic Loading**: CoreDNS watches for ConfigMaps in kube-system
-- **Immediate Effect**: Restart ensures configuration is active
-- **Verification**: Test with `nslookup mongo.db.internal.k8sdr.com` from any pod
-- **Fallback**: If patch fails, applications still work with cluster.local DNS
-
-### Why Not Automated
-- **Timing**: EKS addon management conflicts with immediate configuration changes
-- **Cluster-Specific**: Each cluster needs its own CoreDNS restart timing
-- **Safety**: Manual verification ensures DNS resolution works before proceeding
-
-## 🎯 Total Deployment Time
-- **Automated (Pulumi)**: ~20 minutes
-- **Manual Steps**: ~30 minutes  
-- **Total**: ~50 minutes for complete multi-region DR environment
-
-## 🔍 Validation Checklist
-- [ ] Both EKS clusters running with 1.33
-- [ ] Velero schedules active in both regions
-- [ ] CoreDNS forwarding `internal.k8sdr.com` queries
-- [ ] Applications deployed and healthy
-- [ ] Cross-region MongoDB connectivity
-- [ ] Health endpoints returning correct status
-- [ ] Fault injection working via HTTP endpoints
-- [ ] Chaos Mesh experiments can be applied
-- [ ] DNS failover configured (if Global Accelerator deployed) 
+**Note**: This project uses fish shell extensively as the user strongly prefers it over PowerShell or bash. All automation scripts are designed to work seamlessly with fish shell syntax and conventions. 

@@ -137,22 +137,63 @@ function dr-deploy
     switch $region
         case milan
             use-milan
-            set -l deploy_script "$PWD/applications/deploy-app-milan.sh"
+            set -l target_region eu-south-1
         case dublin
             use-dublin
-            set -l deploy_script "$PWD/applications/deploy-app-dublin.sh"
+            set -l target_region eu-west-1
         case '*'
             dr_error "Invalid region. Use 'milan' or 'dublin'"
             return 1
     end
     
-    if test -f $deploy_script
-        dr_info "Deploying to $region..."
-        bash $deploy_script
+    dr_info "Deploying to $region ($target_region)..."
+    
+    # Store current directory
+    set -l original_dir (pwd)
+    
+    # Navigate to devspace directory
+    cd applications/dadjokes/deploy/devspace
+    
+    # Check if OPENAI_API_KEY is set, if not, decrypt it
+    if test -z "$OPENAI_API_KEY"
+        dr_info "Decrypting OpenAI API key..."
+        set -gx OPENAI_API_KEY (sops --decrypt openai-api-key.enc.yaml | grep OPENAI_API_KEY | cut -d' ' -f6 | base64 -d)
+        if test -z "$OPENAI_API_KEY"
+            dr_error "Failed to decrypt OpenAI API key"
+            cd $original_dir
+            return 1
+        end
+        dr_success "OpenAI API key decrypted"
+    end
+    
+    # Deploy with DevSpace
+    dr_info "Running DevSpace deployment..."
+    env REGION=$target_region devspace deploy -n dev --force-build
+    
+    if test $status -eq 0
+        dr_success "Deployment to $region completed successfully"
+        
+        # Wait for deployments to be ready
+        dr_info "Waiting for deployments to be ready..."
+        kubectl wait --for=condition=available --timeout=300s deployment --all -n dev
+        
+        # Show status
+        echo ""
+        dr_success "Dad Jokes application deployed to $region!"
+        echo ""
+        dr_info "Deployment status:"
+        kubectl get pods -n dev
+        echo ""
+        dr_info "Storage:"
+        kubectl get pvc -n dev
     else
-        dr_error "Deploy script not found: $deploy_script"
+        dr_error "Deployment to $region failed"
+        cd $original_dir
         return 1
     end
+    
+    # Return to original directory
+    cd $original_dir
 end
 
 # Trigger manual EBS snapshot

@@ -26,8 +26,7 @@ export class Monitoring extends pulumi.ComponentResource {
             },
         }, { provider: args.k8sProvider, parent: this });
 
-        // Install Prometheus stack - simplified approach
-        // We'll install everything but skip waiting for CRD resources
+        // Install Prometheus stack with proper CRD handling
         this.prometheusChart = new k8s.helm.v3.Chart(`${name}-prometheus`, {
             chart: "kube-prometheus-stack",
             version: "55.5.0",
@@ -35,14 +34,18 @@ export class Monitoring extends pulumi.ComponentResource {
             fetchOpts: {
                 repo: "https://prometheus-community.github.io/helm-charts",
             },
-            // Skip waiting for resources to avoid CRD timing issues
-            skipAwait: true,
             values: {
+                // Install CRDs
+                crds: {
+                    enabled: true,
+                },
                 // Disable admission webhooks to avoid timing issues
                 prometheusOperator: {
                     admissionWebhooks: {
                         enabled: false,
                     },
+                    // Ensure CRDs are created
+                    manageCrds: true,
                 },
                 // Prometheus configuration
                 prometheus: {
@@ -173,6 +176,17 @@ export class Monitoring extends pulumi.ComponentResource {
                     enabled: false, // EKS managed
                 },
             },
+            // Resource options for the chart
+            transformations: [
+                // Skip waiting for CRD-dependent resources on initial install
+                (obj: any) => {
+                    if (obj.apiVersion?.includes("monitoring.coreos.com")) {
+                        obj.metadata = obj.metadata || {};
+                        obj.metadata.annotations = obj.metadata.annotations || {};
+                        obj.metadata.annotations["pulumi.com/skipAwait"] = "true";
+                    }
+                },
+            ],
         }, { 
             provider: args.k8sProvider, 
             parent: this,

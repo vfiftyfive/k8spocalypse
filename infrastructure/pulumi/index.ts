@@ -10,8 +10,7 @@ import { Dns } from "./components/dns";
 import { Backup } from "./components/backup";
 import { CrossRegion } from "./components/cross-region";
 import { ChaosMesh } from "./components/chaos-mesh";
-import { Monitoring } from "./components/monitoring";
-import { IngressSystem } from "./components/ingress-system";
+import { CoreDnsConfig } from "./components/coredns-config";
 
 // Get configuration
 const config = new pulumi.Config();
@@ -94,74 +93,66 @@ const backup = new Backup("main", {
   tags: getTags(),
 });
 
-// Create monitoring stack
-// NOTE: Due to webhook timing issues, monitoring may fail on first deployment
-// Run `pulumi up` twice to resolve CRD and webhook timing issues
-const monitoring = new Monitoring("main", {
-  k8sProvider: eksCluster.provider,
-  clusterName: clusterName,
-  tags: getTags(),
-});
-
 // Create Chaos Mesh for failure injection
-const chaosMesh = new ChaosMesh("main", {
-  k8sProvider: eksCluster.provider,
-  tags: getTags(),
-});
+// NOTE: Temporarily disabled due to webhook certificate issues
+// Uncomment after base infrastructure is stable
+// const chaosMesh = new ChaosMesh("main", {
+//   k8sProvider: eksCluster.provider,
+//   tags: getTags(),
+// });
 
-// Create ingress for monitoring and chaos dashboards
-// NOTE: This may fail if ALB controller webhook isn't ready
-// Run `pulumi up` twice if ingress creation fails
-const ingressSystem = new IngressSystem("main", {
+// Configure CoreDNS for cross-region DNS resolution
+const coreDnsConfig = new CoreDnsConfig("main", {
   k8sProvider: eksCluster.provider,
-  clusterName: clusterName,
-  // certificateArn: "arn:aws:acm:...", // Add your certificate ARN for HTTPS
-  monitoringChart: monitoring.prometheusChart,
-  chaosMeshChart: chaosMesh.chart,
   tags: getTags(),
 });
 
 // Cross-region setup (only if both regions should be connected)
 let crossRegion: CrossRegion | undefined;
+let vpcPeeringConnectionId: pulumi.Output<string | undefined> | undefined;
+let privateHostedZoneId: pulumi.Output<string | undefined> | undefined;
 
 // Only deploy cross-region infrastructure if we have configuration for it
 const enableCrossRegion = config.getBoolean("enableCrossRegion") || false;
 
-if (enableCrossRegion) {
+if (enableCrossRegion && isMainRegion) {
+  // Determine peer region and stack name
+  const peerRegion = isMainRegion ? "eu-west-1" : "eu-south-1";
+  const peerStackName = isMainRegion ? "dublin" : "milan";
+  
   try {
-    // Determine peer region and stack name
-    const peerRegion = isMainRegion ? "eu-west-1" : "eu-south-1";
-    const peerStackName = isMainRegion ? "dublin" : "milan";
-    const peerEnvironment = isMainRegion ? "dublin" : "milan";
-    
     // Get stack reference to peer region
     const peerStackRef = new pulumi.StackReference(`peer-stack`, {
-      name: `k8s-multi-region-dr/${peerStackName}`,
+      name: peerStackName,
     });
     
     // Get peer VPC information
     const peerVpcId = peerStackRef.getOutput("vpcId");
     const peerVpcCidr = peerStackRef.getOutput("vpcCidr_");
     
-    // Only create cross-region resources from the main region to avoid duplicates
-    if (isMainRegion) {
-      crossRegion = new CrossRegion("cross-region", {
-        primaryVpcId: networking.vpcId,
-        primaryVpcCidr: pulumi.output(vpcCidr),
-        primaryRegion: region,
-        secondaryVpcId: peerVpcId,
-        secondaryVpcCidr: peerVpcCidr,
-        secondaryRegion: peerRegion,
-        projectName: projectName,
-        environment: environment,
-        tags: getTags(),
-      });
-    }
+    // Create cross-region resources
+    crossRegion = new CrossRegion("cross-region", {
+      primaryVpcId: networking.vpcId,
+      primaryVpcCidr: pulumi.output(vpcCidr),
+      primaryRegion: region,
+      secondaryVpcId: peerVpcId,
+      secondaryVpcCidr: peerVpcCidr,
+      secondaryRegion: peerRegion,
+      projectName: projectName,
+      environment: environment,
+      tags: getTags(),
+    });
+    
+    // Set the outputs
+    vpcPeeringConnectionId = crossRegion.vpcPeeringConnection?.id;
+    privateHostedZoneId = crossRegion.privateHostedZone?.zoneId;
     
     pulumi.log.info(`Cross-region connectivity enabled between ${region} and ${peerRegion}`);
   } catch (error) {
-    pulumi.log.warn(`Cross-region setup skipped: ${error}. Deploy peer region first.`);
+    pulumi.log.warn(`Failed to setup cross-region connectivity: ${error}. Deploy peer region first.`);
   }
+} else if (enableCrossRegion) {
+  pulumi.log.info(`Cross-region connectivity will be configured from the main region (eu-south-1)`);
 }
 
 // Export the region for reference
@@ -191,34 +182,12 @@ export const eksOidcProviderUrl = eksCluster.oidcProviderUrl;
 // Export kubeconfig
 export const kubeconfig = pulumi.secret(eksCluster.kubeconfig);
 
-// Note: DNS component requires ALBs from both regions
-// Should be deployed separately after both regions have ALBs
-// Example usage:
-// const dns = new Dns("main", {
-//   domainName: "dadjokes.k8sdr.com",
-//   primaryAlbArn: primaryAlbArn,
-//   primaryAlbDnsName: primaryAlbDnsName,
-//   primaryAlbZoneId: primaryAlbZoneId,
-//   secondaryAlbArn: secondaryAlbArn,
-//   secondaryAlbDnsName: secondaryAlbDnsName,
-//   secondaryAlbZoneId: secondaryAlbZoneId,
-//   primaryRegion: "eu-south-1",
-//   secondaryRegion: "eu-west-1",
-//   tags: getTags(),
-// });
-
 // Export cross-region outputs (if enabled)
 export const crossRegionEnabled = enableCrossRegion;
-export const vpcPeeringConnectionId = crossRegion?.vpcPeeringConnection?.id;
-export const privateHostedZoneId = crossRegion?.privateHostedZone?.zoneId;
-
-// Export monitoring outputs
-export const monitoringNamespace = monitoring.namespace.metadata.name;
-export const grafanaIngressName = ingressSystem.grafanaIngress.metadata.name;
+export { vpcPeeringConnectionId, privateHostedZoneId };
 
 // Export chaos engineering outputs
-export const chaosMeshNamespace = chaosMesh.namespace.metadata.name;
-export const chaosDashboardIngressName = ingressSystem.chaosDashboardIngress.metadata.name;
+// export const chaosMeshNamespace = chaosMesh.namespace.metadata.name;
 
 // Summary output
 export const networkingSummary = pulumi.all([
