@@ -89,19 +89,19 @@ function check_mongodb_rs
     
     # Check replica set status
     echo "Checking $region MongoDB replica set status..."
-    set -l rs_status (kubectl exec -n dev $mongo_pod -c mongod -- mongosh --quiet --eval "rs.status().ok" 2>/dev/null)
+    set -l rs_status (kubectl exec -n dev $mongo_pod -c mongod -- mongosh -u demo -p spectrocloud --authenticationDatabase admin --quiet --eval "rs.status().ok" 2>&1 | tail -1)
     
     if test "$rs_status" = "1"
         # Get replica set members
-        set -l members (kubectl exec -n dev $mongo_pod -c mongod -- mongosh --quiet --eval "rs.status().members.map(m => m.name).join(',')" 2>/dev/null)
+        set -l members (kubectl exec -n dev $mongo_pod -c mongod -- mongosh -u demo -p spectrocloud --authenticationDatabase admin --quiet --eval "rs.status().members.map(m => m.name).join(',')" 2>/dev/null)
         echo "✅ $region: MongoDB replica set is healthy"
         echo "   Members: $members"
         
         # Check if cross-region member exists
-        if string match -q "*mongodb-*" $members
+        if string match -q "*internal.k8sdr.com*" $members
             echo "✅ $region: Cross-region replica detected"
         else
-            echo "⚠️  $region: No cross-region replica found"
+            echo "⚠️  $region: No cross-region replica found (independent replica sets)"
         end
     else
         echo "❌ $region: MongoDB replica set not configured"
@@ -149,4 +149,6 @@ echo "  ✅ DNS records are managed by Pulumi"
 echo "  ✅ Cross-region connectivity verified"
 echo ""
 echo "To update infrastructure, run:"
-echo "  cd infrastructure/pulumi && pulumi up --stack milan" 
+echo "  cd $PWD/infrastructure/pulumi"
+echo "  pulumi up --stack milan   # Primary region (manages both NLBs)"
+echo "  pulumi up --stack dublin  # Secondary region (optional)" 
